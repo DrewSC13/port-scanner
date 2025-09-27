@@ -1,5 +1,5 @@
 """
-Detección de banners y servicios
+Detección de banners y servicios mejorada
 """
 
 import socket
@@ -7,20 +7,12 @@ from typing import Optional, Dict, Any
 from config import config
 
 class BannerGrabber:
-    """Clase para obtener banners de servicios"""
+    """Clase mejorada para obtener banners de servicios"""
     
     @staticmethod
     def grab_banner(host: str, port: int, timeout: float = None) -> Optional[str]:
         """
-        Intenta obtener el banner de un servicio
-        
-        Args:
-            host: IP o hostname del objetivo
-            port: Puerto a escanear
-            timeout: Timeout para la conexión
-            
-        Returns:
-            Banner del servicio o None si no se puede obtener
+        Intenta obtener el banner de un servicio con diferentes técnicas
         """
         if timeout is None:
             timeout = config.BANNER_TIMEOUT
@@ -30,14 +22,34 @@ class BannerGrabber:
             sock.settimeout(timeout)
             sock.connect((host, port))
             
-            # Intentar recibir datos del servicio
             banner = None
             try:
-                sock.send(b"\r\n\r\n")  # Enviar payload genérico
-                banner = sock.recv(config.MAX_BANNER_LENGTH).decode('utf-8', errors='ignore').strip()
-            except (socket.timeout, socket.error):
-                pass
+                # Intentar diferentes payloads según el puerto
+                if port in [80, 443, 8080, 8443]:
+                    # HTTP/HTTPS
+                    sock.send(b"HEAD / HTTP/1.0\r\n\r\n")
+                elif port in [21, 2121]:
+                    # FTP
+                    sock.send(b"\r\n")
+                elif port in [22]:
+                    # SSH
+                    sock.send(b"SSH-2.0-Test\r\n")
+                elif port in [25, 587]:
+                    # SMTP
+                    sock.send(b"EHLO example.com\r\n")
+                else:
+                    # Intento genérico
+                    sock.send(b"\r\n\r\n")
                 
+                banner = sock.recv(config.MAX_BANNER_LENGTH).decode('utf-8', errors='ignore').strip()
+                
+            except (socket.timeout, socket.error):
+                # Intentar recibir sin enviar nada
+                try:
+                    banner = sock.recv(config.MAX_BANNER_LENGTH).decode('utf-8', errors='ignore').strip()
+                except:
+                    pass
+                    
             sock.close()
             return banner if banner else None
             
@@ -48,13 +60,6 @@ class BannerGrabber:
     def get_service_info(host: str, port: int) -> Dict[str, Any]:
         """
         Obtiene información detallada del servicio
-        
-        Args:
-            host: IP o hostname
-            port: Puerto a analizar
-            
-        Returns:
-            Diccionario con información del servicio
         """
         from src.network import NetworkUtils
         
