@@ -20,8 +20,6 @@ Escáner de puertos profesional para auditorías de seguridad desarrollado en Py
 
 ```bash
 # Clonar el repositorio
-git clone https://github.com/tuusuario/portscanner-pro.git
-cd portscanner-pro
-
+git clone https://github.com/DrewSC13/PortScanner.git
 # No se requieren dependencias externas (solo Python 3.8+)
 python main.py --help
