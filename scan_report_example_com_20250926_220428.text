@@ -1,0 +1,19 @@
+============================================================
+REPORTE DE ESCANEO DE PUERTOS
+Objetivo: example.com
+Fecha: 2025-09-26 22:04:28
+Puertos abiertos: 3
+============================================================
+
+Puerto: 25/TCP
+Servicio: SMTP
+Tiempo de respuesta: 0.055s
+----------------------------------------
+Puerto: 80/TCP
+Servicio: HTTP
+Tiempo de respuesta: 0.321s
+----------------------------------------
+Puerto: 443/TCP
+Servicio: HTTPS
+Tiempo de respuesta: 0.314s
+----------------------------------------
