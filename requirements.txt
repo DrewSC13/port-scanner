@@ -1,7 +1,5 @@
-# PortScanner Pro - Dependencias
-python>=3.8
+# PortScanner Pro - Dependencias de desarrollo y testing
 
-# Desarrollo y testing
 pytest>=6.0
 pytest-cov>=2.0
 black>=21.0
@@ -9,6 +7,5 @@ flake8>=3.9
 mypy>=0.900
 
 # Opcional: Para futuras características
-# requests>=2.25
-# beautifulsoup4>=4.9
-# tkinter  # Incluido en Python estándar
+requests>=2.25
+beautifulsoup4>=4.9
