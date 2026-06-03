@@ -19,7 +19,6 @@ dist/
 
 # Rust
 rust-core/target/
-Cargo.lock
 
 # Go
 go-banner/go-banner
