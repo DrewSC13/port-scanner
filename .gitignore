@@ -1,35 +1,32 @@
-# Python cache
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
-
-# Virtual environments
+*.pyo
+*.pyd
+.Python
 venv/
-env/
-.venv/
-
-# Environment variables
 .env
-.env.*
-
-# IDE / editors
-.vscode/
-.idea/
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Test / coverage
+.venv/
 .pytest_cache/
+.mypy_cache/
 .coverage
 htmlcov/
 
-# Build files
+# Build / packaging
 build/
 dist/
 *.egg-info/
 
-# Local secrets
-git-token
-*.token
+# Rust
+rust-core/target/
+Cargo.lock
+
+# Go
+go-banner/go-banner
+
+# Sistema / editores
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
