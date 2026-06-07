@@ -37,10 +37,8 @@ class PortScannerCLI:
             formatter_class=argparse.RawDescriptionHelpFormatter,
         )
 
-        # Argumentos principales
         parser.add_argument("host", help="Host objetivo (IP o dominio)")
 
-        # Opciones de escaneo
         scan_group = parser.add_argument_group("Opciones de escaneo")
         scan_group.add_argument(
             "-p",
@@ -74,7 +72,6 @@ class PortScannerCLI:
             help="Motor de escaneo a utilizar. Default: python",
         )
 
-        # Opciones de output
         output_group = parser.add_argument_group("Opciones de salida")
         output_group.add_argument(
             "-o",
@@ -100,7 +97,6 @@ class PortScannerCLI:
             help="Motor para banner grabbing. Default: python",
         )
 
-        # Opciones de verbose
         parser.add_argument(
             "-v",
             "--verbose",
@@ -117,29 +113,24 @@ class PortScannerCLI:
 
     def validate_arguments(self, args) -> bool:
         """Valida los argumentos proporcionados."""
-        # Validar host
         if not NetworkUtils.is_valid_host(args.host):
             print(f"❌ Error: Host '{args.host}' no válido")
             return False
 
-        # Validar rango de puertos
         if not args.common_ports:
             port_range = NetworkUtils.validate_port_range(args.ports)
             if not port_range:
                 print(f"❌ Error: Rango de puertos '{args.ports}' no válido")
                 return False
 
-        # Validar número de hilos
         if args.threads < 1 or args.threads > config.MAX_THREADS:
             print(f"❌ Error: Número de hilos debe estar entre 1 y {config.MAX_THREADS}")
             return False
 
-        # Validar timeout
         if args.timeout <= 0:
             print("❌ Error: Timeout debe ser mayor a 0")
             return False
 
-        # Validar uso de banner engine
         if args.banner_engine == "go" and not args.banner_grab:
             print("⚠️  Aviso: --banner-engine go solo se usará si también activas --banner-grab")
 
@@ -148,12 +139,6 @@ class PortScannerCLI:
     def _get_ports_to_scan(self, args) -> List[int]:
         """
         Construye la lista de puertos que se enviará a los motores externos.
-
-        Args:
-            args: Argumentos parseados desde argparse.
-
-        Returns:
-            Lista de puertos.
         """
         if args.common_ports:
             return sorted(config.COMMON_PORTS.keys())
@@ -165,7 +150,7 @@ class PortScannerCLI:
         """
         Convierte un resultado JSON del motor Rust a ScanResult.
 
-        El motor Rust final deberá devolver objetos similares a:
+        El motor Rust debe devolver objetos similares a:
         {
             "port": 80,
             "is_open": true,
@@ -227,14 +212,14 @@ class PortScannerCLI:
             host=host_ip,
             ports=ports,
             timeout=args.timeout,
+            workers=args.threads,
         )
 
         results = [self._convert_rust_result(item) for item in raw_results]
 
-        # Guardamos los resultados en scanner para reutilizar get_statistics().
         scanner.results = results
 
-        return [result for result in results if result.is_open]
+        return results
 
     def _apply_go_banners(
         self,
@@ -276,7 +261,13 @@ class PortScannerCLI:
 
         return results
 
-    def _generate_report(self, results: List[ScanResult], target: str, output_file: str, report_format: str) -> None:
+    def _generate_report(
+        self,
+        results: List[ScanResult],
+        target: str,
+        output_file: str,
+        report_format: str,
+    ) -> None:
         """Genera el reporte en el formato solicitado."""
         if report_format == "json":
             ReportGenerator.generate_json_report(results, target, output_file)
@@ -294,7 +285,6 @@ class PortScannerCLI:
         if not self.validate_arguments(args):
             sys.exit(1)
 
-        # Resolver host
         host_ip = NetworkUtils.resolve_host(args.host)
         if not host_ip:
             print(f"❌ Error: No se pudo resolver el host '{args.host}'")
@@ -302,11 +292,8 @@ class PortScannerCLI:
 
         print(f"🎯 Iniciando escaneo de {args.host} ({host_ip})")
 
-        # Configurar escáner Python base.
-        # Aunque se use Rust, mantenemos esta instancia para estadísticas y compatibilidad.
         scanner = PortScanner(timeout=args.timeout, max_threads=args.threads)
 
-        # Configurar callback de progreso
         if args.verbose:
 
             def progress_callback(progress, result):
@@ -316,14 +303,11 @@ class PortScannerCLI:
             scanner.progress_callback = progress_callback
 
         try:
-            # Ejecutar escaneo según motor seleccionado
             if args.engine == "rust":
                 results = self._scan_with_rust(scanner, host_ip, args)
             else:
                 results = self._scan_with_python(scanner, host_ip, args)
 
-            # Banner grabbing externo con Go, si se solicita.
-            # El modo Python ya está integrado dentro de scan_port actualmente.
             if args.banner_grab and args.banner_engine == "go":
                 results = self._apply_go_banners(
                     host_ip=host_ip,
@@ -331,7 +315,6 @@ class PortScannerCLI:
                     timeout=config.BANNER_TIMEOUT,
                 )
 
-            # Generar reporte
             safe_host = args.host.replace(".", "_").replace("/", "_").replace(":", "_")
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             output_file = args.output or f"scan_report_{safe_host}_{timestamp}.{args.format}"
@@ -343,7 +326,6 @@ class PortScannerCLI:
                 report_format=args.format,
             )
 
-            # Mostrar estadísticas
             stats = scanner.get_statistics()
             print("\n📊 Estadísticas del escaneo:")
             print(f"   • Motor de escaneo: {args.engine}")

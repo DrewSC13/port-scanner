@@ -85,9 +85,18 @@ fn parse_args() -> AppConfig {
         print_error_and_exit("Timeout debe ser mayor a 0");
     }
 
+    let requested_workers = get_arg_value(&args, "--workers")
+        .unwrap_or_else(|| "100".to_string())
+        .parse::<usize>()
+        .unwrap_or_else(|_| print_error_and_exit("Workers inválido"));
+
+    if requested_workers == 0 {
+        print_error_and_exit("Workers debe ser mayor a 0");
+    }
+
     let ports = parse_ports(&raw_ports).unwrap_or_else(|error| print_error_and_exit(&error));
 
-    let workers = ports.len().clamp(1, 512);
+    let workers = requested_workers.min(512).min(ports.len().max(1));
 
     AppConfig {
         host,

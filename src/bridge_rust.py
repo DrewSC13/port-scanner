@@ -1,15 +1,15 @@
 """
 Bridge para integrar el motor de escaneo escrito en Rust.
 
-Este módulo permitirá que Python ejecute el binario Rust cuando esté disponible.
-Por ahora está preparado para la arquitectura multi-engine, pero mantiene una
-validación segura para evitar romper el proyecto si Rust aún no fue compilado.
+Este módulo permite que Python ejecute el binario Rust cuando esté disponible.
+El motor Rust recibe host, puertos, timeout y cantidad de workers, y devuelve
+resultados en formato JSON.
 """
 
 import json
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 
 
 class RustScannerBridge:
@@ -28,7 +28,13 @@ class RustScannerBridge:
         """Verifica si el binario Rust existe y se puede ejecutar."""
         return self.binary_path.exists() and self.binary_path.is_file()
 
-    def scan(self, host: str, ports: List[int], timeout: float = 2.0) -> List[Dict[str, Any]]:
+    def scan(
+        self,
+        host: str,
+        ports: List[int],
+        timeout: float = 2.0,
+        workers: int = 100,
+    ) -> List[Dict[str, Any]]:
         """
         Ejecuta el escáner Rust.
 
@@ -36,6 +42,7 @@ class RustScannerBridge:
             host: Host o IP objetivo.
             ports: Lista de puertos a escanear.
             timeout: Timeout por conexión.
+            workers: Número de hilos/workers para el motor Rust.
 
         Returns:
             Lista de resultados devueltos por Rust.
@@ -60,6 +67,8 @@ class RustScannerBridge:
             ports_arg,
             "--timeout",
             str(timeout),
+            "--workers",
+            str(workers),
         ]
 
         try:
