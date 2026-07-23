@@ -1,6 +1,6 @@
 # 🔍 PortScanner Pro
 
-![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
+![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey.svg)
 
@@ -20,6 +20,14 @@ Escáner de puertos profesional para auditorías de seguridad desarrollado en Py
 
 ```bash
 # Clonar el repositorio
-git clone https://github.com/DrewSC13/PortScanner.git
-# No se requieren dependencias externas (solo Python 3.8+)
-python main.py --help
+git clone https://github.com/DrewSC13/port-scanner.git
+cd port-scanner
+
+# Crear un entorno virtual e instalar la aplicación
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install .
+
+# Mostrar la ayuda de la CLI instalada
+portscanner --help
+```
