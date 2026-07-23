@@ -1,6 +1,8 @@
 import csv
 import io
 import json
+from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -210,6 +212,7 @@ class TestCanonicalScanContract(unittest.TestCase):
                     banner_grab=True,
                     banner_engine="python",
                     output="ignored.txt",
+                    report_dir="reports",
                     format="text",
                 )
 
@@ -237,6 +240,11 @@ class TestCanonicalScanContract(unittest.TestCase):
                         cli,
                         "_apply_requested_banners",
                     ) as apply_banners,
+                    patch.object(
+                        cli,
+                        "_resolve_output_path",
+                        return_value=Path("ignored.txt"),
+                    ),
                     patch.object(cli, "_generate_report"),
                     patch("builtins.print"),
                 ):
@@ -254,6 +262,191 @@ class TestCanonicalScanContract(unittest.TestCase):
                     ],
                     [45001],
                 )
+
+
+class TestCliReportOutput(unittest.TestCase):
+    def test_default_text_report_uses_txt_inside_report_directory(self):
+        cli = PortScannerCLI()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            report_dir = Path(temp_dir) / "reports"
+            output_path = cli._resolve_output_path(
+                host="example.com",
+                report_format="text",
+                report_dir=str(report_dir),
+                timestamp="20260723_160000",
+            )
+
+            self.assertEqual(
+                output_path,
+                report_dir / "scan_report_example.com_20260723_160000.txt",
+            )
+            self.assertTrue(report_dir.is_dir())
+
+    def test_automatic_report_names_do_not_overwrite_existing_files(self):
+        cli = PortScannerCLI()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            report_dir = Path(temp_dir) / "reports"
+
+            first_path = cli._resolve_output_path(
+                host="localhost",
+                report_format="text",
+                report_dir=str(report_dir),
+                timestamp="20260723_154045",
+            )
+            first_path.write_text("python report", encoding="utf-8")
+
+            second_path = cli._resolve_output_path(
+                host="localhost",
+                report_format="text",
+                report_dir=str(report_dir),
+                timestamp="20260723_154045",
+            )
+            second_path.write_text("rust report", encoding="utf-8")
+
+            third_path = cli._resolve_output_path(
+                host="localhost",
+                report_format="text",
+                report_dir=str(report_dir),
+                timestamp="20260723_154045",
+            )
+
+            self.assertEqual(
+                first_path.name,
+                "scan_report_localhost_20260723_154045.txt",
+            )
+            self.assertEqual(
+                second_path.name,
+                "scan_report_localhost_20260723_154045_2.txt",
+            )
+            self.assertEqual(
+                third_path.name,
+                "scan_report_localhost_20260723_154045_3.txt",
+            )
+            self.assertEqual(
+                first_path.read_text(encoding="utf-8"),
+                "python report",
+            )
+            self.assertEqual(
+                second_path.read_text(encoding="utf-8"),
+                "rust report",
+            )
+
+    def test_output_filename_without_directory_is_saved_in_report_directory(self):
+        cli = PortScannerCLI()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            report_dir = Path(temp_dir) / "reports"
+            output_path = cli._resolve_output_path(
+                host="127.0.0.1",
+                report_format="json",
+                output="resultado",
+                report_dir=str(report_dir),
+            )
+
+            self.assertEqual(output_path, report_dir / "resultado.json")
+
+    def test_explicit_output_path_is_preserved_and_parent_is_created(self):
+        cli = PortScannerCLI()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            explicit_path = Path(temp_dir) / "custom" / "resultado.csv"
+            output_path = cli._resolve_output_path(
+                host="127.0.0.1",
+                report_format="csv",
+                output=str(explicit_path),
+                report_dir="ignored",
+            )
+
+            self.assertEqual(output_path, explicit_path)
+            self.assertTrue(explicit_path.parent.is_dir())
+
+    def test_run_displays_ordered_findings_and_saves_selected_format(self):
+        cli = PortScannerCLI()
+
+        def complete_scan(scanner, _host_ip, _args):
+            scanner.start_external_scan()
+            return scanner.finish_external_scan(
+                [
+                    ScanResult(
+                        port=45002,
+                        is_open=True,
+                        service="Second",
+                        banner="banner-two",
+                        response_time=0.02,
+                    ),
+                    ScanResult(
+                        port=45001,
+                        is_open=True,
+                        service="First",
+                        banner="banner-one",
+                        response_time=0.01,
+                    ),
+                    ScanResult(
+                        port=45003,
+                        is_open=False,
+                        service="",
+                        response_time=0.03,
+                    ),
+                ]
+            )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            report_dir = Path(temp_dir) / "reports"
+            args = SimpleNamespace(
+                host="127.0.0.1",
+                common_ports=False,
+                ports="45001-45003",
+                threads=1,
+                timeout=0.1,
+                engine="python",
+                verbose=False,
+                banner_grab=False,
+                banner_engine="python",
+                output=None,
+                report_dir=str(report_dir),
+                format="json",
+            )
+
+            with (
+                patch.object(cli.parser, "parse_args", return_value=args),
+                patch.object(cli, "validate_arguments", return_value=True),
+                patch(
+                    "src.cli.NetworkUtils.resolve_host",
+                    return_value="127.0.0.1",
+                ),
+                patch.object(
+                    cli,
+                    "_scan_with_python",
+                    side_effect=complete_scan,
+                ),
+                patch("builtins.print") as print_mock,
+            ):
+                cli.run()
+
+            printed = "\n".join(
+                " ".join(str(value) for value in call.args)
+                for call in print_mock.call_args_list
+            )
+            self.assertIn("🔎 Resultados encontrados:", printed)
+            self.assertIn("Puerto: 45001/TCP", printed)
+            self.assertIn("Servicio: First", printed)
+            self.assertIn("Banner: banner-one", printed)
+            self.assertIn("Puerto: 45002/TCP", printed)
+            self.assertNotIn("Puerto: 45003/TCP", printed)
+            self.assertLess(
+                printed.index("Puerto: 45001/TCP"),
+                printed.index("Puerto: 45002/TCP"),
+            )
+
+            report_files = list(report_dir.glob("*.json"))
+            self.assertEqual(len(report_files), 1)
+            report = json.loads(report_files[0].read_text(encoding="utf-8"))
+            self.assertEqual(
+                [item["port"] for item in report["open_ports"]],
+                [45001, 45002],
+            )
 
 
 class TestReportableResultFiltering(unittest.TestCase):
@@ -289,6 +482,15 @@ class TestReportableResultFiltering(unittest.TestCase):
         self.assertIn("Puerto: 43001/TCP", report)
         self.assertNotIn("43002", report)
         self.assertNotIn("43003", report)
+
+    def test_empty_text_report_states_that_no_open_ports_were_found(self):
+        report = ReportGenerator.generate_text_report(
+            self.results[1:],
+            "127.0.0.1",
+        )
+
+        self.assertIn("Puertos abiertos: 0", report)
+        self.assertIn("No se encontraron puertos abiertos.", report)
 
     def test_json_report_contains_only_open_ports(self):
         report = json.loads(

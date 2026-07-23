@@ -5,6 +5,8 @@ Interfaz de línea de comandos profesional
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import datetime
+from pathlib import Path
+import re
 import sys
 from typing import Any, Dict, List
 
@@ -78,7 +80,18 @@ class PortScannerCLI:
         output_group.add_argument(
             "-o",
             "--output",
-            help="Archivo de salida para el reporte",
+            help=(
+                "Nombre o ruta del archivo de salida. Si indicas solo un "
+                "nombre, se guardará dentro de --report-dir"
+            ),
+        )
+        output_group.add_argument(
+            "--report-dir",
+            default=config.DEFAULT_REPORT_DIR,
+            help=(
+                "Carpeta predeterminada para los reportes. "
+                f"Default: {config.DEFAULT_REPORT_DIR}"
+            ),
         )
         output_group.add_argument(
             "-f",
@@ -342,16 +355,109 @@ class PortScannerCLI:
         target: str,
         output_file: str,
         report_format: str,
-    ) -> None:
+    ) -> str:
         """Genera el reporte en el formato solicitado."""
         if report_format == "json":
-            ReportGenerator.generate_json_report(results, target, output_file)
-        elif report_format == "csv":
-            ReportGenerator.generate_csv_report(results, target, output_file)
-        elif report_format == "html":
-            ReportGenerator.generate_html_report(results, target, output_file)
+            return ReportGenerator.generate_json_report(
+                results,
+                target,
+                output_file,
+            )
+        if report_format == "csv":
+            return ReportGenerator.generate_csv_report(
+                results,
+                target,
+                output_file,
+            )
+        if report_format == "html":
+            return ReportGenerator.generate_html_report(
+                results,
+                target,
+                output_file,
+            )
+        return ReportGenerator.generate_text_report(
+            results,
+            target,
+            output_file,
+        )
+
+    @staticmethod
+    def _safe_filename_component(value: str) -> str:
+        """Convierte un objetivo validado en un componente de nombre seguro."""
+        sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", value)
+        sanitized = sanitized.strip("._")
+        return sanitized or "target"
+
+    def _resolve_output_path(
+        self,
+        host: str,
+        report_format: str,
+        output: str = None,
+        report_dir: str = None,
+        timestamp: str = None,
+    ) -> Path:
+        """Resuelve la ruta de salida y crea su carpeta de forma segura."""
+        report_directory = Path(
+            report_dir or config.DEFAULT_REPORT_DIR
+        ).expanduser()
+        extension_by_format = {
+            "text": ".txt",
+            "json": ".json",
+            "csv": ".csv",
+            "html": ".html",
+        }
+        extension = extension_by_format[report_format]
+
+        if output:
+            requested_path = Path(output).expanduser()
+            if requested_path.is_absolute() or requested_path.parent != Path("."):
+                output_path = requested_path
+            else:
+                output_path = report_directory / requested_path
+
+            if not output_path.suffix:
+                output_path = output_path.with_suffix(extension)
         else:
-            ReportGenerator.generate_text_report(results, target, output_file)
+            safe_host = self._safe_filename_component(host)
+            resolved_timestamp = timestamp or datetime.datetime.now().strftime(
+                "%Y%m%d_%H%M%S"
+            )
+            base_output_path = report_directory / (
+                f"scan_report_{safe_host}_{resolved_timestamp}{extension}"
+            )
+            output_path = base_output_path
+            collision_number = 2
+
+            while output_path.exists():
+                output_path = base_output_path.with_name(
+                    (
+                        f"{base_output_path.stem}_{collision_number}"
+                        f"{base_output_path.suffix}"
+                    )
+                )
+                collision_number += 1
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        return output_path
+
+    @staticmethod
+    def _display_results(
+        results: List[ScanResult],
+        target: str,
+        persisted_report: str,
+        report_format: str,
+    ) -> None:
+        """Muestra siempre todos los hallazgos reportables en formato legible."""
+        if report_format == "text":
+            console_report = persisted_report
+        else:
+            console_report = ReportGenerator.generate_text_report(
+                results,
+                target,
+            )
+
+        print("\n🔎 Resultados encontrados:")
+        print(console_report)
 
     def run(self):
         """Ejecuta la interfaz de línea de comandos."""
@@ -391,14 +497,23 @@ class PortScannerCLI:
                     timeout=config.BANNER_TIMEOUT,
                 )
 
-            safe_host = args.host.replace(".", "_").replace("/", "_").replace(":", "_")
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_file = args.output or f"scan_report_{safe_host}_{timestamp}.{args.format}"
+            output_file = self._resolve_output_path(
+                host=args.host,
+                report_format=args.format,
+                output=args.output,
+                report_dir=args.report_dir,
+            )
 
-            self._generate_report(
+            persisted_report = self._generate_report(
                 results=scanner.results,
                 target=args.host,
-                output_file=output_file,
+                output_file=str(output_file),
+                report_format=args.format,
+            )
+            self._display_results(
+                results=scanner.results,
+                target=args.host,
+                persisted_report=persisted_report,
                 report_format=args.format,
             )
 
@@ -408,6 +523,8 @@ class PortScannerCLI:
             print(f"   • Motor de banners: {args.banner_engine if args.banner_grab else 'no usado'}")
             print(f"   • Puertos escaneados: {stats['total_ports']}")
             print(f"   • Puertos abiertos: {stats['open_ports']}")
+            print(f"   • Puertos cerrados: {stats['closed_ports']}")
+            print(f"   • Puertos filtrados: {stats['filtered_ports']}")
             print(f"   • Tiempo promedio: {stats['average_response_time']:.3f}s")
             print(f"   • Reporte guardado en: {output_file}")
 

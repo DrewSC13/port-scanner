@@ -68,6 +68,10 @@ Run the Go commands from `go-banner/`.
 - Internal results may be open, closed, or filtered.
 - Reportable results contain only entries where `is_open is True`.
 - TXT, JSON, CSV, and HTML must apply the same reportable filter.
+- Every CLI scan must display the complete ordered reportable result set.
+- Automatic reports must be stored under `reports/` unless the user selects
+  another report directory or supplies an explicit output path.
+- Automatic report names must never overwrite an existing report.
 - Python and Rust must agree on open/closed states and statistics for the same
   deterministic localhost fixture.
 - TCP scans must not send application payloads unless `--banner-grab` is set.
