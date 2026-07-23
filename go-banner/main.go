@@ -116,8 +116,16 @@ func shouldSendHTTPProbe(port int) bool {
 	}
 }
 
+func buildTargetAddress(host string, port int) string {
+	normalizedHost := strings.TrimSpace(host)
+	normalizedHost = strings.TrimPrefix(normalizedHost, "[")
+	normalizedHost = strings.TrimSuffix(normalizedHost, "]")
+
+	return net.JoinHostPort(normalizedHost, strconv.Itoa(port))
+}
+
 func grabBanner(host string, port int, timeout time.Duration) BannerResult {
-	address := fmt.Sprintf("%s:%d", host, port)
+	address := buildTargetAddress(host, port)
 
 	result := BannerResult{
 		Port:    port,
