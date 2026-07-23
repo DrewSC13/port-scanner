@@ -7,7 +7,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from config import config
-from src.banner import BannerGrabber
+from src.network import NetworkUtils
 
 
 @dataclass
@@ -109,13 +109,17 @@ class PortScanner:
             sock.close()
             
             if result == 0:
-                # Puerto abierto - obtener información adicional
-                service_info = BannerGrabber.get_service_info(host, port)
+                # El escaneo TCP solo determina conectividad. El banner
+                # grabbing se ejecuta después y únicamente bajo petición.
+                service = config.COMMON_PORTS.get(port)
+                if not service:
+                    service = NetworkUtils.get_service_name(port)
+
                 return ScanResult(
                     port=port,
                     is_open=True,
-                    service=service_info["common_name"],
-                    banner=service_info["banner"],
+                    service=service,
+                    banner=None,
                     response_time=response_time,
                     protocol="tcp"
                 )

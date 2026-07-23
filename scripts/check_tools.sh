@@ -53,15 +53,6 @@ echo "[7] Pytest"
 check_command_version "pytest" "pytest --version"
 echo ""
 
-echo "[8] Pruebas del proyecto"
-if [ -d "tests" ]; then
-    echo "Ejecutando pytest..."
-    pytest
-else
-    echo "⚠️  Carpeta tests no encontrada"
-fi
-
-echo ""
 echo "======================================"
-echo " Verificación finalizada"
+echo " Verificación de herramientas finalizada"
 echo "======================================"

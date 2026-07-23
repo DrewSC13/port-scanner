@@ -132,6 +132,129 @@ class TestCanonicalScanContract(unittest.TestCase):
                 }
             )
 
+    def test_banner_phase_dispatch_is_independent_from_scan_engine(self):
+        cli = PortScannerCLI()
+        results = [
+            ScanResult(
+                port=443,
+                is_open=True,
+                service="HTTPS",
+            )
+        ]
+
+        for banner_engine, method_name in (
+            ("python", "_apply_python_banners"),
+            ("go", "_apply_go_banners"),
+        ):
+            with self.subTest(banner_engine=banner_engine):
+                with (
+                    patch.object(
+                        cli,
+                        "_apply_python_banners",
+                        return_value=results,
+                    ) as python_banners,
+                    patch.object(
+                        cli,
+                        "_apply_go_banners",
+                        return_value=results,
+                    ) as go_banners,
+                ):
+                    returned = cli._apply_requested_banners(
+                        host_ip="127.0.0.1",
+                        results=results,
+                        banner_engine=banner_engine,
+                        timeout=0.1,
+                    )
+
+                self.assertIs(returned, results)
+                expected = (
+                    python_banners
+                    if method_name == "_apply_python_banners"
+                    else go_banners
+                )
+                unexpected = (
+                    go_banners
+                    if method_name == "_apply_python_banners"
+                    else python_banners
+                )
+                expected.assert_called_once()
+                unexpected.assert_not_called()
+
+    def test_banner_flag_runs_after_python_and_rust_scans(self):
+        def complete_scan(scanner, _host_ip, _args):
+            scanner.start_external_scan()
+            return scanner.finish_external_scan(
+                [
+                    ScanResult(
+                        port=45001,
+                        is_open=True,
+                        service="Local-Test",
+                    )
+                ]
+            )
+
+        for scan_engine, scan_method in (
+            ("python", "_scan_with_python"),
+            ("rust", "_scan_with_rust"),
+        ):
+            with self.subTest(scan_engine=scan_engine):
+                cli = PortScannerCLI()
+                args = SimpleNamespace(
+                    host="127.0.0.1",
+                    common_ports=False,
+                    ports="45001",
+                    threads=1,
+                    timeout=0.1,
+                    engine=scan_engine,
+                    verbose=False,
+                    banner_grab=True,
+                    banner_engine="python",
+                    output="ignored.txt",
+                    format="text",
+                )
+
+                with (
+                    patch.object(
+                        cli.parser,
+                        "parse_args",
+                        return_value=args,
+                    ),
+                    patch.object(
+                        cli,
+                        "validate_arguments",
+                        return_value=True,
+                    ),
+                    patch(
+                        "src.cli.NetworkUtils.resolve_host",
+                        return_value="127.0.0.1",
+                    ),
+                    patch.object(
+                        cli,
+                        scan_method,
+                        side_effect=complete_scan,
+                    ),
+                    patch.object(
+                        cli,
+                        "_apply_requested_banners",
+                    ) as apply_banners,
+                    patch.object(cli, "_generate_report"),
+                    patch("builtins.print"),
+                ):
+                    cli.run()
+
+                apply_banners.assert_called_once()
+                self.assertEqual(
+                    apply_banners.call_args.kwargs["banner_engine"],
+                    "python",
+                )
+                self.assertEqual(
+                    [
+                        result.port
+                        for result in apply_banners.call_args.kwargs["results"]
+                    ],
+                    [45001],
+                )
+
 
 class TestReportableResultFiltering(unittest.TestCase):
     def setUp(self):
@@ -202,6 +325,68 @@ class TestReportableResultFiltering(unittest.TestCase):
         self.assertIn("Puerto 43001/TCP", report)
         self.assertNotIn("43002", report)
         self.assertNotIn("43003", report)
+
+    def test_html_report_escapes_hostile_target_service_and_banner(self):
+        hostile_result = ScanResult(
+            port=443,
+            is_open=True,
+            service='<img src=x onerror="alert(1)">',
+            banner='</pre><script>alert("banner")</script>&',
+            response_time=0.01,
+        )
+        hostile_target = '</title><script>alert("target")</script>'
+
+        report = ReportGenerator.generate_html_report(
+            [hostile_result],
+            hostile_target,
+        )
+
+        self.assertNotIn("<script>", report)
+        self.assertNotIn("<img src=x", report)
+        self.assertIn("&lt;script&gt;", report)
+        self.assertIn("&lt;img src=x", report)
+        self.assertIn("&amp;", report)
+
+    def test_csv_report_neutralizes_formula_injection(self):
+        hostile_results = [
+            ScanResult(
+                port=44001,
+                is_open=True,
+                service=" =2+5",
+                banner="@SUM(1,2)",
+                response_time=0.01,
+            ),
+            ScanResult(
+                port=44002,
+                is_open=True,
+                service="+cmd",
+                banner="-10+20",
+                response_time=0.02,
+            ),
+            ScanResult(
+                port=44003,
+                is_open=True,
+                service="\tSAFE",
+                banner="\ufeff=HYPERLINK(\"https://example.invalid\")",
+                response_time=0.03,
+            ),
+        ]
+
+        report = ReportGenerator.generate_csv_report(
+            hostile_results,
+            "127.0.0.1",
+        )
+        rows = list(csv.DictReader(io.StringIO(report)))
+
+        self.assertEqual(rows[0]["Service"], "' =2+5")
+        self.assertEqual(rows[0]["Banner"], "'@SUM(1,2)")
+        self.assertEqual(rows[1]["Service"], "'+cmd")
+        self.assertEqual(rows[1]["Banner"], "'-10+20")
+        self.assertEqual(rows[2]["Service"], "'\tSAFE")
+        self.assertEqual(
+            rows[2]["Banner"],
+            "'\ufeff=HYPERLINK(\"https://example.invalid\")",
+        )
 
 
 if __name__ == "__main__":

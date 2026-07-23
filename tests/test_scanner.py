@@ -19,6 +19,9 @@ class TestPortScanner(unittest.TestCase):
         
         self.assertTrue(result.is_open)
         self.assertEqual(result.port, 80)
+        self.assertIsNone(result.banner)
+        mock_sock.sendall.assert_not_called()
+        mock_sock.recv.assert_not_called()
     
     @patch('src.scanner.socket.socket')
     def test_scan_port_closed(self, mock_socket):

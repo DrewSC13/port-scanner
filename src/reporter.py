@@ -2,14 +2,29 @@
 
 import csv
 import datetime
+import html
 import json
-from typing import List
+from typing import Any, List
 
 from src.scanner import ScanResult
 
 
 class ReportGenerator:
     """Generador de reportes de puertos abiertos."""
+
+    @staticmethod
+    def _neutralize_csv_cell(value: Any) -> str:
+        """Evita que una hoja de cálculo interprete datos como fórmulas."""
+        text = str(value)
+        candidate = text.lstrip(" \t\r\n\ufeff")
+
+        if (
+            text.startswith(("\t", "\r", "\n"))
+            or candidate.startswith(("=", "+", "-", "@"))
+        ):
+            return f"'{text}"
+
+        return text
 
     @staticmethod
     def _get_reportable_results(results: List[ScanResult]) -> List[ScanResult]:
@@ -128,8 +143,8 @@ class ReportGenerator:
         for result in open_results:
             writer.writerow([
                 result.port,
-                result.service,
-                result.banner or "N/A",
+                ReportGenerator._neutralize_csv_cell(result.service),
+                ReportGenerator._neutralize_csv_cell(result.banner or "N/A"),
                 f"{result.response_time:.3f}",
                 "OPEN"
             ])
@@ -156,37 +171,57 @@ class ReportGenerator:
             Contenido HTML del reporte
         """
         open_results = ReportGenerator._get_reportable_results(results)
+        safe_target = html.escape(str(target), quote=True)
+        result_blocks = []
+
+        for result in open_results:
+            safe_service = html.escape(str(result.service), quote=True)
+            safe_protocol = html.escape(
+                str(result.protocol).upper(),
+                quote=True,
+            )
+            banner_block = ""
+
+            if result.banner:
+                safe_banner = html.escape(str(result.banner), quote=True)
+                banner_block = (
+                    '<div class="banner"><strong>Banner:</strong>'
+                    f"<pre>{safe_banner}</pre></div>"
+                )
+
+            result_blocks.append(
+                f"""
+                <div class="result">
+                    <h3>Puerto {result.port}/{safe_protocol} - {safe_service}</h3>
+                    <p><strong>Tiempo de respuesta:</strong> {result.response_time:.3f}s</p>
+                    {banner_block}
+                </div>
+                """
+            )
+
         html_template = f"""
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Reporte CicadaPort - {target}</title>
+            <title>Reporte CicadaPort - {safe_target}</title>
             <style>
                 body {{ font-family: Arial, sans-serif; margin: 20px; }}
                 .header {{ background: #f0f0f0; padding: 20px; border-radius: 5px; }}
                 .result {{ border: 1px solid #ddd; margin: 10px 0; padding: 15px; border-radius: 5px; }}
                 .banner {{ background: #f9f9f9; padding: 10px; font-family: monospace; }}
+                .banner pre {{ white-space: pre-wrap; overflow-wrap: anywhere; }}
             </style>
         </head>
         <body>
             <div class="header">
                 <h1>Reporte CicadaPort</h1>
-                <p><strong>Objetivo:</strong> {target}</p>
+                <p><strong>Objetivo:</strong> {safe_target}</p>
                 <p><strong>Fecha:</strong> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
                 <p><strong>Puertos abiertos:</strong> {len(open_results)}</p>
             </div>
             
             <div class="results">
-                {"".join([
-                    f'''
-                    <div class="result">
-                        <h3>Puerto {result.port}/TCP - {result.service}</h3>
-                        <p><strong>Tiempo de respuesta:</strong> {result.response_time:.3f}s</p>
-                        {f'<div class="banner"><strong>Banner:</strong><br>{result.banner}</div>' if result.banner else ''}
-                    </div>
-                    '''
-                    for result in open_results
-                ])}
+                {"".join(result_blocks)}
             </div>
         </body>
         </html>

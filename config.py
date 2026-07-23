@@ -16,6 +16,8 @@ class ScannerConfig:
     MAX_PORT: int = 65535
     BANNER_TIMEOUT: float = 3.0
     MAX_BANNER_LENGTH: int = 1024
+    MAX_BANNER_OUTPUT_LENGTH: int = 300
+    MAX_BANNER_THREADS: int = 32
     
     # Servicios comunes expandidos
     COMMON_PORTS: Dict[int, str] = field(default_factory=lambda: {
