@@ -1,17 +1,30 @@
-"""
-Generación de reportes en múltiples formatos
-"""
+"""Generación de reportes en múltiples formatos."""
 
-import json
 import csv
 import datetime
-from typing import List, Dict, Any
-from pathlib import Path
+import json
+from typing import List
+
 from src.scanner import ScanResult
 
+
 class ReportGenerator:
-    """Generador de reportes profesionales"""
-    
+    """Generador de reportes de puertos abiertos."""
+
+    @staticmethod
+    def _get_reportable_results(results: List[ScanResult]) -> List[ScanResult]:
+        """
+        Aplica el contrato canónico de salida.
+
+        El estado interno puede incluir puertos abiertos, cerrados y filtrados,
+        pero ningún formato reporta elementos cuyo estado no sea exactamente
+        ``True``.
+        """
+        return sorted(
+            (result for result in results if result.is_open is True),
+            key=lambda result: (result.protocol, result.port),
+        )
+
     @staticmethod
     def generate_text_report(results: List[ScanResult], target: str, output_file: str = None) -> str:
         """
@@ -25,17 +38,18 @@ class ReportGenerator:
         Returns:
             Contenido del reporte
         """
+        open_results = ReportGenerator._get_reportable_results(results)
         report = [
             "=" * 60,
-            f"REPORTE DE ESCANEO DE PUERTOS",
+            "REPORTE CICADAPORT",
             f"Objetivo: {target}",
             f"Fecha: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            f"Puertos abiertos: {len(results)}",
+            f"Puertos abiertos: {len(open_results)}",
             "=" * 60,
             ""
         ]
         
-        for result in results:
+        for result in open_results:
             report.append(f"Puerto: {result.port}/TCP")
             report.append(f"Servicio: {result.service}")
             if result.banner:
@@ -64,10 +78,11 @@ class ReportGenerator:
         Returns:
             JSON string del reporte
         """
+        open_results = ReportGenerator._get_reportable_results(results)
         report_data = {
             "scan_target": target,
             "scan_date": datetime.datetime.now().isoformat(),
-            "open_ports_count": len(results),
+            "open_ports_count": len(open_results),
             "open_ports": [
                 {
                     "port": result.port,
@@ -75,7 +90,7 @@ class ReportGenerator:
                     "banner": result.banner,
                     "response_time": result.response_time
                 }
-                for result in results
+                for result in open_results
             ]
         }
         
@@ -102,6 +117,7 @@ class ReportGenerator:
         """
         import io
         
+        open_results = ReportGenerator._get_reportable_results(results)
         output = io.StringIO()
         writer = csv.writer(output)
         
@@ -109,7 +125,7 @@ class ReportGenerator:
         writer.writerow(["Port", "Service", "Banner", "Response Time", "Status"])
         
         # Datos
-        for result in results:
+        for result in open_results:
             writer.writerow([
                 result.port,
                 result.service,
@@ -139,11 +155,12 @@ class ReportGenerator:
         Returns:
             Contenido HTML del reporte
         """
+        open_results = ReportGenerator._get_reportable_results(results)
         html_template = f"""
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Reporte de Escaneo - {target}</title>
+            <title>Reporte CicadaPort - {target}</title>
             <style>
                 body {{ font-family: Arial, sans-serif; margin: 20px; }}
                 .header {{ background: #f0f0f0; padding: 20px; border-radius: 5px; }}
@@ -153,10 +170,10 @@ class ReportGenerator:
         </head>
         <body>
             <div class="header">
-                <h1>Reporte de Escaneo de Puertos</h1>
+                <h1>Reporte CicadaPort</h1>
                 <p><strong>Objetivo:</strong> {target}</p>
                 <p><strong>Fecha:</strong> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-                <p><strong>Puertos abiertos:</strong> {len(results)}</p>
+                <p><strong>Puertos abiertos:</strong> {len(open_results)}</p>
             </div>
             
             <div class="results">
@@ -168,7 +185,7 @@ class ReportGenerator:
                         {f'<div class="banner"><strong>Banner:</strong><br>{result.banner}</div>' if result.banner else ''}
                     </div>
                     '''
-                    for result in results
+                    for result in open_results
                 ])}
             </div>
         </body>

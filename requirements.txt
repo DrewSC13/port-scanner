@@ -1,4 +1,4 @@
-# PortScanner Pro - Dependencias de desarrollo y testing
+# CicadaPort - Dependencias de desarrollo y testing
 
 pytest>=6.0
 pytest-cov>=2.0

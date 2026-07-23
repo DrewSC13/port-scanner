@@ -3,13 +3,13 @@
 set -e
 
 echo "======================================"
-echo " PortScanner Pro - Test All"
+echo " CicadaPort - Test All"
 echo " Python + Rust + Go"
 echo "======================================"
 echo ""
 
 echo "[1] Ejecutando pruebas Python..."
-pytest -v
+CICADAPORT_REQUIRE_RUST_INTEGRATION=1 pytest -v
 
 echo ""
 echo "[2] Probando motor Rust directamente..."
@@ -18,12 +18,12 @@ echo "[2] Probando motor Rust directamente..."
   --ports 20,21,22,23,24,25 \
   --timeout 1 \
   --workers 2 \
-  >/tmp/portscanner_rust_test.json
+  >/tmp/cicadaport_rust_test.json
 
 if command -v jq >/dev/null 2>&1; then
-    jq . /tmp/portscanner_rust_test.json
+    jq . /tmp/cicadaport_rust_test.json
 else
-    cat /tmp/portscanner_rust_test.json
+    cat /tmp/cicadaport_rust_test.json
 fi
 
 echo ""
@@ -32,12 +32,12 @@ echo "[3] Probando motor Go directamente..."
   --host 127.0.0.1 \
   --ports 20,21,22,80,8000 \
   --timeout 1 \
-  >/tmp/portscanner_go_test.json
+  >/tmp/cicadaport_go_test.json
 
 if command -v jq >/dev/null 2>&1; then
-    jq . /tmp/portscanner_go_test.json
+    jq . /tmp/cicadaport_go_test.json
 else
-    cat /tmp/portscanner_go_test.json
+    cat /tmp/cicadaport_go_test.json
 fi
 
 echo ""

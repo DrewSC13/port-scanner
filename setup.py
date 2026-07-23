@@ -11,8 +11,9 @@ setup(
     version="2.0.0",
     author="Security Team",
     author_email="security@example.com",
-    description="Escáner de puertos profesional para auditorías de seguridad",
+    description="CicadaPort: escáner de puertos multi-engine para auditorías autorizadas",
     license="MIT",
+    license_files=["LICENSE.md"],
     long_description=LONG_DESCRIPTION,
     long_description_content_type="text/markdown",
     packages=find_packages(include=["src", "src.*"]),
@@ -32,6 +33,7 @@ setup(
     python_requires=">=3.10",
     entry_points={
         "console_scripts": [
+            "cicadaport=main:main",
             "portscanner=main:main",
         ],
     },
