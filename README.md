@@ -21,6 +21,30 @@ desarrollado en Python con motores auxiliares en Rust y Go.
 - **Validación Avanzada**: Verificación completa de entradas y configuraciones
 - **Estadísticas Detalladas**: Métricas completas del escaneo
 
+## Contratos avanzados de objetivos y evidencia
+
+El núcleo define un contrato versionado independiente de la interfaz. Cada
+resultado de puerto conserva temporalmente `is_open` para compatibilidad, pero
+también registra:
+
+- estado canónico `open`, `closed`, `filtered`, `unfiltered`,
+  `open|filtered` o `closed|filtered`;
+- razón técnica y evidencia que sustentan ese estado;
+- objetivo solicitado, dirección resuelta y familia IPv4/IPv6;
+- estado observado del host y técnica de escaneo utilizada;
+- versión del contrato para la futura comunicación JSON Lines con Rust.
+
+El parser fundacional acepta especificaciones individuales, varias entradas,
+CIDR, rangos IP completos y archivos con comentarios. Deduplica preservando el
+orden, permite exclusiones y aplica un límite explícito de 4096 objetivos para
+evitar expansiones masivas accidentales. La resolución usa `getaddrinfo()` y
+puede conservar todas las direcciones IPv4 e IPv6 de un hostname.
+
+Esta capa todavía no convierte la CLI en un orquestador multiobjetivo: la
+ejecución concurrente de varios hosts, el descubrimiento y las técnicas raw se
+incorporarán en subhitos posteriores. La CLI actual continúa ejecutando TCP
+Connect sobre un único objetivo validado.
+
 ## Instalación Rápida
 
 ```bash
@@ -165,3 +189,5 @@ Las extensiones automáticas son `.txt`, `.json`, `.csv` y `.html`. Los nombres
 automáticos nunca sobrescriben un reporte existente: cuando coinciden objetivo
 y segundo de ejecución, se añade un sufijo como `_2` o `_3`. Si el escaneo no
 detecta puertos abiertos, la terminal y el reporte TXT lo indican expresamente.
+Los reportes añaden de forma compatible el estado, la razón, la dirección y la
+técnica; JSON identifica además la versión del contrato.

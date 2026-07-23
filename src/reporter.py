@@ -6,6 +6,7 @@ import html
 import json
 from typing import Any, List, Optional
 
+from src.contracts import PortState, SCAN_CONTRACT_VERSION
 from src.scanner import ScanResult
 
 
@@ -35,7 +36,7 @@ class ReportGenerator:
         ``True``.
         """
         return sorted(
-            (result for result in results if result.is_open is True),
+            (result for result in results if result.state is PortState.OPEN),
             key=lambda result: (result.protocol, result.port),
         )
 
@@ -72,6 +73,11 @@ class ReportGenerator:
 
         for result in open_results:
             report.append(f"Puerto: {result.port}/{result.protocol.upper()}")
+            report.append(f"Estado: {result.state.value}")
+            report.append(f"Razón: {result.reason.value}")
+            if result.address:
+                report.append(f"Dirección: {result.address}")
+            report.append(f"Técnica: {result.technique.value}")
             report.append(f"Servicio: {result.service}")
             if result.banner:
                 report.append(f"Banner: {result.banner.strip()}")
@@ -105,17 +111,12 @@ class ReportGenerator:
         """
         open_results = ReportGenerator._get_reportable_results(results)
         report_data = {
+            "contract_version": SCAN_CONTRACT_VERSION,
             "scan_target": target,
             "scan_date": datetime.datetime.now().isoformat(),
             "open_ports_count": len(open_results),
             "open_ports": [
-                {
-                    "port": result.port,
-                    "service": result.service,
-                    "banner": result.banner,
-                    "response_time": result.response_time,
-                }
-                for result in open_results
+                result.to_contract_dict() for result in open_results
             ],
         }
 
@@ -151,17 +152,43 @@ class ReportGenerator:
         writer = csv.writer(output)
 
         # Encabezados
-        writer.writerow(["Port", "Service", "Banner", "Response Time", "Status"])
+        writer.writerow(
+            [
+                "Port",
+                "Protocol",
+                "Service",
+                "Banner",
+                "Response Time",
+                "Status",
+                "Reason",
+                "Target",
+                "Address",
+                "Address Family",
+                "Technique",
+                "Contract Version",
+            ]
+        )
 
         # Datos
         for result in open_results:
             writer.writerow(
                 [
                     result.port,
+                    result.protocol,
                     ReportGenerator._neutralize_csv_cell(result.service),
                     ReportGenerator._neutralize_csv_cell(result.banner or "N/A"),
                     f"{result.response_time:.3f}",
-                    "OPEN",
+                    result.state.value.upper(),
+                    result.reason.value,
+                    ReportGenerator._neutralize_csv_cell(result.target),
+                    result.address,
+                    (
+                        result.address_family.value
+                        if result.address_family
+                        else ""
+                    ),
+                    result.technique.value,
+                    result.contract_version,
                 ]
             )
 
@@ -200,6 +227,10 @@ class ReportGenerator:
                 str(result.protocol).upper(),
                 quote=True,
             )
+            safe_state = html.escape(result.state.value, quote=True)
+            safe_reason = html.escape(result.reason.value, quote=True)
+            safe_address = html.escape(result.address, quote=True)
+            safe_technique = html.escape(result.technique.value, quote=True)
             banner_block = ""
 
             if result.banner:
@@ -212,6 +243,10 @@ class ReportGenerator:
             result_blocks.append(f"""
                 <div class="result">
                     <h3>Puerto {result.port}/{safe_protocol} - {safe_service}</h3>
+                    <p><strong>Estado:</strong> {safe_state}</p>
+                    <p><strong>Razón:</strong> {safe_reason}</p>
+                    <p><strong>Dirección:</strong> {safe_address}</p>
+                    <p><strong>Técnica:</strong> {safe_technique}</p>
                     <p><strong>Tiempo de respuesta:</strong> {result.response_time:.3f}s</p>
                     {banner_block}
                 </div>

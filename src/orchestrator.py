@@ -14,6 +14,13 @@ from config import config
 from src.banner import BannerGrabber
 from src.bridge_go import GoBannerBridge
 from src.bridge_rust import RustScannerBridge
+from src.contracts import (
+    HostState,
+    PortState,
+    ReasonCode,
+    ScanEvidence,
+    ScanTechnique,
+)
 from src.errors import ScanCancelledError
 from src.events import ScanEvent, ScanEventType
 from src.network import NetworkUtils
@@ -141,7 +148,12 @@ class ScanOrchestrator:
         return list(range(start_port, end_port + 1))
 
     @staticmethod
-    def _convert_rust_result(result: Dict[str, Any]) -> ScanResult:
+    def _convert_rust_result(
+        result: Dict[str, Any],
+        *,
+        target: str = "",
+        address: str = "",
+    ) -> ScanResult:
         port = int(result.get("port", 0))
         is_open = result.get("is_open")
         if not isinstance(is_open, bool):
@@ -161,7 +173,36 @@ class ScanOrchestrator:
             banner=result.get("banner"),
             response_time=float(result.get("response_time", 0.0)),
             protocol=result.get("protocol", "tcp"),
+            state=PortState.OPEN if is_open else PortState.CLOSED,
+            target=target,
+            address=address,
+            host_state=HostState.UP if is_open else HostState.UNKNOWN,
+            technique=ScanTechnique.TCP_CONNECT,
+            evidence=ScanEvidence(
+                reason=(
+                    ReasonCode.CONNECTION_ACCEPTED
+                    if is_open
+                    else ReasonCode.UNKNOWN
+                ),
+                source="rust",
+                detail=(
+                    None
+                    if is_open
+                    else "El contrato Rust legado no expone la causa del cierre."
+                ),
+            ),
         )
+
+    @staticmethod
+    def _attach_target_identity(
+        results: List[ScanResult],
+        *,
+        requested: str,
+        address: str,
+    ) -> None:
+        """Completa identidad sin alterar el estado producido por cada motor."""
+        for result in results:
+            result.attach_target_identity(requested, result.address or address)
 
     @staticmethod
     def _resolve_scan_engine(requested: str) -> str:
@@ -215,7 +256,14 @@ class ScanOrchestrator:
                 workers=request.threads,
                 cancel_event=self.cancel_event,
             )
-            results = [self._convert_rust_result(item) for item in raw_results]
+            results = [
+                self._convert_rust_result(
+                    item,
+                    target=host_ip,
+                    address=host_ip,
+                )
+                for item in raw_results
+            ]
         except Exception:
             scanner.finish_external_scan([])
             raise
@@ -447,6 +495,11 @@ class ScanOrchestrator:
                 scan_operation = self._scan_python_hook or self.scan_with_python
 
             scan_operation(scanner, host_ip, request)
+            self._attach_target_identity(
+                scanner.results,
+                requested=request.host,
+                address=host_ip,
+            )
             self._raise_if_cancelled()
 
             if request.banner_grab:
