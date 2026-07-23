@@ -63,9 +63,12 @@ class ReportGenerator:
             "=" * 60,
             ""
         ]
-        
+
+        if not open_results:
+            report.append("No se encontraron puertos abiertos.")
+
         for result in open_results:
-            report.append(f"Puerto: {result.port}/TCP")
+            report.append(f"Puerto: {result.port}/{result.protocol.upper()}")
             report.append(f"Servicio: {result.service}")
             if result.banner:
                 report.append(f"Banner: {result.banner.strip()}")
