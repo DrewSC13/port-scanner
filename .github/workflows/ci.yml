@@ -1,0 +1,266 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-tests:
+    name: Python tests (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.10"
+          - "3.11"
+          - "3.12"
+          - "3.13"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run Python tests with coverage
+        run: |
+          python -m pytest \
+            -v \
+            --cov=src \
+            --cov-report=term-missing
+
+  python-package:
+    name: Python package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+
+      - name: Build wheel and source distribution
+        run: python -m build
+
+      - name: Test installed wheel outside source tree
+        run: |
+          wheel_path="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
+
+          if [[ -z "$wheel_path" ]]; then
+            echo "No wheel was generated"
+            exit 1
+          fi
+
+          package_venv="${RUNNER_TEMP}/portscanner-package-venv"
+
+          python -m venv "$package_venv"
+
+          "$package_venv/bin/python" -m pip install \
+            --no-deps \
+            "$wheel_path"
+
+          "$package_venv/bin/python" -m pip check
+
+          (
+            cd "$RUNNER_TEMP"
+
+            "$package_venv/bin/python" -c \
+              'import config, main, src.cli; print("imports: ok")'
+
+            "$package_venv/bin/portscanner" --version
+            "$package_venv/bin/portscanner" --help
+          )
+
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install stable Rust toolchain
+        run: |
+          rustup toolchain install stable \
+            --profile minimal \
+            --component rustfmt,clippy
+
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Check Rust formatting
+        run: |
+          cargo fmt \
+            --manifest-path rust-core/Cargo.toml \
+            -- \
+            --check
+
+      - name: Run Clippy
+        run: |
+          cargo clippy \
+            --manifest-path rust-core/Cargo.toml \
+            --all-targets \
+            --all-features \
+            -- \
+            -D warnings
+
+      - name: Run Rust tests
+        run: |
+          cargo test \
+            --manifest-path rust-core/Cargo.toml
+
+      - name: Build release binary
+        run: |
+          cargo build \
+            --release \
+            --locked \
+            --manifest-path rust-core/Cargo.toml
+
+  go:
+    name: Go
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go-banner/go.mod
+          cache: false
+
+      - name: Check Go formatting
+        working-directory: go-banner
+        run: |
+          unformatted="$(gofmt -l .)"
+
+          if [[ -n "$unformatted" ]]; then
+            echo "The following Go files are not formatted:"
+            printf '%s\n' "$unformatted"
+            exit 1
+          fi
+
+      - name: Run Go vet
+        working-directory: go-banner
+        run: go vet ./...
+
+      - name: Run Go tests with race detector
+        working-directory: go-banner
+        run: go test -race ./...
+
+      - name: Build Go binary
+        working-directory: go-banner
+        run: |
+          go build \
+            -trimpath \
+            -o "${RUNNER_TEMP}/go-banner" \
+            .
+
+  shell:
+    name: Shell
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck
+          shellcheck --version
+
+      - name: Check Bash syntax
+        run: bash -n scripts/*.sh
+
+      - name: Run ShellCheck
+        run: shellcheck scripts/*.sh
+
+  integration:
+    name: Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs:
+      - python-tests
+      - python-package
+      - rust
+      - go
+      - shell
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go-banner/go.mod
+          cache: false
+
+      - name: Install stable Rust toolchain
+        run: |
+          rustup toolchain install stable \
+            --profile minimal \
+            --component rustfmt,clippy
+
+          rustup default stable
+
+      - name: Create integration environment
+        run: |
+          integration_venv="${RUNNER_TEMP}/portscanner-integration-venv"
+
+          python -m venv "$integration_venv"
+
+          "$integration_venv/bin/python" -m pip install --upgrade pip
+          "$integration_venv/bin/python" -m pip install -r requirements.txt
+
+          echo "VIRTUAL_ENV=$integration_venv" >> "$GITHUB_ENV"
+          echo "$integration_venv/bin" >> "$GITHUB_PATH"
+
+      - name: Build all engines
+        run: ./scripts/build_all.sh
+
+      - name: Test all engines and bridges
+        run: ./scripts/test_all.sh
