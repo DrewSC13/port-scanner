@@ -11,9 +11,9 @@ check_command_version() {
     local version_command="$2"
 
     if command -v "$command_name" >/dev/null 2>&1; then
-        echo "✅ $command_name encontrado: $($version_command 2>/dev/null | head -n 1)"
+        echo "[OK] $command_name encontrado: $($version_command 2>/dev/null | head -n 1)"
     else
-        echo "❌ $command_name no encontrado"
+        echo "[ERROR] $command_name no encontrado"
     fi
 }
 
@@ -29,9 +29,9 @@ echo ""
 
 echo "[3] Entorno virtual"
 if [ -n "$VIRTUAL_ENV" ]; then
-    echo "✅ Entorno virtual activo: $VIRTUAL_ENV"
+    echo "[OK] Entorno virtual activo: $VIRTUAL_ENV"
 else
-    echo "⚠️  No hay entorno virtual activo"
+    echo "[WARN] No hay entorno virtual activo"
     echo "   Actívalo con: source venv/bin/activate"
 fi
 echo ""

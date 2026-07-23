@@ -1,79 +1,123 @@
-"""
-Interfaz de línea de comandos profesional
-"""
+"""Interfaz de línea de comandos de CicadaPort."""
+
+from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import datetime
 from pathlib import Path
-import re
-import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from config import config
 from src.banner import BannerGrabber
 from src.bridge_go import GoBannerBridge
 from src.bridge_rust import RustScannerBridge
+from src.errors import ScanCancelledError
 from src.network import NetworkUtils
-from src.reporter import ReportGenerator
+from src.orchestrator import ScanOrchestrator, ScanRequest
+from src.presentation import ConsolePresenter
+from src.profiles import SCAN_PROFILES, resolve_scan_options
 from src.scanner import PortScanner, ScanResult
 
 
 class PortScannerCLI:
-    """Interfaz de línea de comandos para el escáner."""
+    """CLI compatible con automatización y separada de la presentación."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.parser = self._setup_parser()
+        self._orchestrator: ScanOrchestrator | None = None
 
     def _setup_parser(self) -> argparse.ArgumentParser:
-        """Configura el parser de argumentos."""
         parser = argparse.ArgumentParser(
-            description="🔍 CicadaPort - Herramienta de auditoría de puertos",
+            description=(
+                "CicadaPort - Reconocimiento TCP para evaluaciones "
+                "de seguridad autorizadas"
+            ),
             epilog=(
-                "Ejemplos de uso:\n"
+                "Ejemplos:\n"
                 "  python main.py localhost\n"
-                "  python main.py 192.168.1.1 -p 20-443 -t 200 --format json\n"
-                "  python main.py localhost --common-ports --banner-grab\n"
-                "  python main.py localhost --engine python\n"
-                "  python main.py localhost --engine rust\n"
-                "  python main.py localhost --engine rust --banner-grab --banner-engine go"
+                "  python main.py 192.168.1.1 --profile standard\n"
+                "  python main.py 10.0.0.0 -p 20-443 -t 200 --format json\n"
+                "  python main.py localhost --engine rust --banner-grab "
+                "--banner-engine go\n"
+                "  python main.py localhost --profile standard --tui"
             ),
             formatter_class=argparse.RawDescriptionHelpFormatter,
         )
-
-        parser.add_argument("host", help="Host objetivo (IP o dominio)")
+        parser.add_argument(
+            "host",
+            nargs="?",
+            help="Host objetivo autorizado (IP o dominio).",
+        )
+        parser.add_argument(
+            "--tui",
+            action="store_true",
+            help=(
+                "Validar los parámetros en la CLI y monitorizar el escaneo "
+                "en el dashboard terminal."
+            ),
+        )
 
         scan_group = parser.add_argument_group("Opciones de escaneo")
         scan_group.add_argument(
+            "--profile",
+            choices=list(SCAN_PROFILES),
+            default="custom",
+            help=(
+                "Perfil reproducible: safe, standard, deep o custom. " "Default: custom"
+            ),
+        )
+        scan_group.add_argument(
             "-p",
             "--ports",
-            help=f"Rango de puertos (ej: 1-1000). Default: {config.DEFAULT_PORTS}",
-            default=config.DEFAULT_PORTS,
+            default=None,
+            help=("Puerto o rango (ej: 1-1000). Reemplaza el rango del perfil."),
         )
         scan_group.add_argument(
             "-c",
             "--common-ports",
             action="store_true",
-            help="Escanear solo puertos comunes",
+            default=None,
+            help="Escanear la lista configurada de puertos comunes.",
         )
         scan_group.add_argument(
             "-t",
             "--threads",
             type=int,
-            default=config.DEFAULT_THREADS,
-            help=f"Número de hilos. Default: {config.DEFAULT_THREADS}",
+            default=None,
+            help=f"Número de hilos. Máximo: {config.MAX_THREADS}.",
         )
         scan_group.add_argument(
             "--timeout",
             type=float,
-            default=config.DEFAULT_TIMEOUT,
-            help=f"Timeout por puerto (segundos). Default: {config.DEFAULT_TIMEOUT}",
+            default=None,
+            help="Timeout por puerto en segundos.",
         )
         scan_group.add_argument(
             "--engine",
-            choices=["python", "rust"],
-            default="python",
-            help="Motor de escaneo a utilizar. Default: python",
+            choices=["auto", "python", "rust"],
+            default=None,
+            help="Motor TCP. 'auto' prefiere Rust si está compilado.",
+        )
+
+        banner_group = scan_group.add_mutually_exclusive_group()
+        banner_group.add_argument(
+            "--banner-grab",
+            dest="banner_grab",
+            action="store_true",
+            default=None,
+            help="Enumerar banners después del escaneo TCP.",
+        )
+        banner_group.add_argument(
+            "--no-banner-grab",
+            dest="banner_grab",
+            action="store_false",
+            help="Desactivar banners aunque el perfil los habilite.",
+        )
+        scan_group.add_argument(
+            "--banner-engine",
+            choices=["auto", "python", "go"],
+            default=None,
+            help="Motor de banners. 'auto' prefiere Go si está compilado.",
         )
 
         output_group = parser.add_argument_group("Opciones de salida")
@@ -81,17 +125,14 @@ class PortScannerCLI:
             "-o",
             "--output",
             help=(
-                "Nombre o ruta del archivo de salida. Si indicas solo un "
-                "nombre, se guardará dentro de --report-dir"
+                "Nombre o ruta de salida. Un nombre simple se guarda dentro "
+                "de --report-dir."
             ),
         )
         output_group.add_argument(
             "--report-dir",
             default=config.DEFAULT_REPORT_DIR,
-            help=(
-                "Carpeta predeterminada para los reportes. "
-                f"Default: {config.DEFAULT_REPORT_DIR}"
-            ),
+            help=f"Carpeta de reportes. Default: {config.DEFAULT_REPORT_DIR}",
         )
         output_group.add_argument(
             "-f",
@@ -100,153 +141,138 @@ class PortScannerCLI:
             default="text",
             help="Formato del reporte. Default: text",
         )
-        output_group.add_argument(
-            "--banner-grab",
-            action="store_true",
-            help=(
-                "Obtener banners explícitamente después del escaneo "
-                "(desactivado por defecto)"
-            ),
-        )
-        output_group.add_argument(
-            "--banner-engine",
-            choices=["python", "go"],
-            default="python",
-            help="Motor para banner grabbing. Default: python",
-        )
 
         parser.add_argument(
             "-v",
             "--verbose",
             action="store_true",
-            help="Modo verbose",
+            help="Mostrar cada puerto abierto conforme se detecta.",
         )
         parser.add_argument(
             "--version",
             action="version",
-            version="CicadaPort 2.1",
+            version="CicadaPort 2.2.0",
         )
-
         return parser
 
+    @staticmethod
+    def _apply_profile_defaults(args):
+        """Combina el perfil con las opciones escritas por el usuario."""
+        profile_name = getattr(args, "profile", "custom")
+        options = resolve_scan_options(
+            profile_name,
+            ports=args.ports,
+            common_ports=args.common_ports,
+            threads=args.threads,
+            timeout=args.timeout,
+            engine=args.engine,
+            banner_grab=args.banner_grab,
+            banner_engine=args.banner_engine,
+        )
+        args.ports = options.ports
+        args.common_ports = options.common_ports
+        args.threads = options.threads
+        args.timeout = options.timeout
+        args.engine = options.engine
+        args.banner_grab = options.banner_grab
+        args.banner_engine = options.banner_engine
+        args.profile = options.profile
+        return args
+
     def validate_arguments(self, args) -> bool:
-        """Valida los argumentos proporcionados."""
+        """Valida una configuración ya resuelta."""
+        if not args.host:
+            print("Error: debes indicar un host objetivo.")
+            return False
+
         if not NetworkUtils.is_valid_host(args.host):
-            print(f"❌ Error: Host '{args.host}' no válido")
+            print(f"Error: host '{args.host}' no válido.")
             return False
 
         if not args.common_ports:
             port_range = NetworkUtils.validate_port_range(args.ports)
             if not port_range:
-                print(f"❌ Error: Rango de puertos '{args.ports}' no válido")
+                print(f"Error: rango de puertos '{args.ports}' no válido.")
                 return False
 
         if args.threads < 1 or args.threads > config.MAX_THREADS:
-            print(f"❌ Error: Número de hilos debe estar entre 1 y {config.MAX_THREADS}")
+            print(
+                "Error: el número de hilos debe estar entre "
+                f"1 y {config.MAX_THREADS}."
+            )
             return False
 
         if args.timeout <= 0:
-            print("❌ Error: Timeout debe ser mayor a 0")
+            print("Error: el timeout debe ser mayor a 0.")
             return False
 
-        if args.banner_engine == "go" and not args.banner_grab:
-            print("⚠️  Aviso: --banner-engine go solo se usará si también activas --banner-grab")
-
+        if args.banner_engine in {"go", "auto"} and not args.banner_grab:
+            print(
+                "Aviso: --banner-engine solo se usa cuando los banners "
+                "están habilitados."
+            )
         return True
 
     def _get_ports_to_scan(self, args) -> List[int]:
-        """
-        Construye la lista de puertos que se enviará a los motores externos.
-        """
+        """Compatibilidad interna con el contrato validado del Hito 2."""
         if args.common_ports:
-            return sorted(config.COMMON_PORTS.keys())
-
-        start_port, end_port = NetworkUtils.validate_port_range(args.ports)
+            return sorted(config.COMMON_PORTS)
+        port_range = NetworkUtils.validate_port_range(args.ports)
+        if port_range is None:
+            raise ValueError(f"Rango de puertos '{args.ports}' no válido.")
+        start_port, end_port = port_range
         return list(range(start_port, end_port + 1))
 
     def _convert_rust_result(self, result: Dict[str, Any]) -> ScanResult:
-        """
-        Convierte un resultado JSON del motor Rust a ScanResult.
+        """Compatibilidad interna para normalizar resultados Rust."""
+        return ScanOrchestrator._convert_rust_result(result)
 
-        El motor Rust debe devolver objetos similares a:
-        {
-            "port": 80,
-            "is_open": true,
-            "service": "HTTP",
-            "banner": null,
-            "response_time": 0.012,
-            "protocol": "tcp"
-        }
-        """
-        port = int(result.get("port", 0))
-        is_open = result.get("is_open")
-        if not isinstance(is_open, bool):
-            raise ValueError(
-                "El resultado Rust debe incluir 'is_open' como booleano."
-            )
-
-        service = result.get("service")
-        if not service:
-            service = config.COMMON_PORTS.get(port, NetworkUtils.get_service_name(port))
-
-        return ScanResult(
-            port=port,
-            is_open=is_open,
-            service=service if is_open else "",
-            banner=result.get("banner"),
-            response_time=float(result.get("response_time", 0.0)),
-            protocol=result.get("protocol", "tcp"),
-        )
-
-    def _scan_with_python(self, scanner: PortScanner, host_ip: str, args) -> List[ScanResult]:
-        """Ejecuta el escaneo usando el motor Python actual."""
-        print("🐍 Motor seleccionado: Python")
-
+    def _scan_with_python(
+        self,
+        scanner: PortScanner,
+        host_ip: str,
+        args,
+    ) -> List[ScanResult]:
+        """Ejecuta el motor Python sin acoplarlo a la salida."""
         if args.common_ports:
-            print("🔍 Escaneando puertos comunes...")
             return scanner.scan_common_ports(host_ip)
-
-        start_port, end_port = NetworkUtils.validate_port_range(args.ports)
-        print(f"🔍 Escaneando puertos {start_port}-{end_port}...")
+        port_range = NetworkUtils.validate_port_range(args.ports)
+        if port_range is None:
+            raise ValueError(f"Rango de puertos '{args.ports}' no válido.")
+        start_port, end_port = port_range
         return scanner.scan_range(host_ip, start_port, end_port)
 
-    def _scan_with_rust(self, scanner: PortScanner, host_ip: str, args) -> List[ScanResult]:
-        """Ejecuta el escaneo usando el motor Rust."""
-        print("🦀 Motor seleccionado: Rust")
-
+    def _scan_with_rust(
+        self,
+        scanner: PortScanner,
+        host_ip: str,
+        args,
+    ) -> List[ScanResult]:
+        """Ejecuta Rust conservando el contrato canónico."""
         rust_bridge = RustScannerBridge()
-
         if not rust_bridge.is_available():
             raise FileNotFoundError(
-                "No se encontró el binario Rust en "
-                "rust-core/target/release/rust-core. "
-                "Compílalo con: cargo build --release --manifest-path rust-core/Cargo.toml"
+                "No se encontró el binario Rust. " "Ejecuta ./scripts/build_all.sh."
             )
 
-        ports = self._get_ports_to_scan(args)
-
-        if args.common_ports:
-            print("🔍 Rust escaneando puertos comunes...")
-        else:
-            print(f"🔍 Rust escaneando {len(ports)} puertos...")
-
         scanner.start_external_scan()
-
         try:
             raw_results = rust_bridge.scan(
                 host=host_ip,
-                ports=ports,
+                ports=self._get_ports_to_scan(args),
                 timeout=args.timeout,
                 workers=args.threads,
+                cancel_event=(
+                    self._orchestrator.cancel_event
+                    if self._orchestrator is not None
+                    else None
+                ),
             )
-            internal_results = [
-                self._convert_rust_result(item) for item in raw_results
-            ]
+            results = [self._convert_rust_result(item) for item in raw_results]
         except Exception:
             scanner.finish_external_scan([])
             raise
-
-        return scanner.finish_external_scan(internal_results)
+        return scanner.finish_external_scan(results)
 
     def _apply_python_banners(
         self,
@@ -254,36 +280,48 @@ class PortScannerCLI:
         results: List[ScanResult],
         timeout: float,
     ) -> List[ScanResult]:
-        """Obtiene banners con Python solo para resultados abiertos."""
-        open_results = [
-            result for result in results if result.is_open is True
-        ]
-
+        """Obtiene banners Python para resultados abiertos."""
+        open_results = [result for result in results if result.is_open is True]
         if not open_results:
-            print("ℹ️  No hay puertos abiertos para obtener banners con Python")
             return results
 
-        print("🐍 Banner engine seleccionado: Python")
-        worker_count = min(config.MAX_BANNER_THREADS, len(open_results))
-
-        with ThreadPoolExecutor(max_workers=worker_count) as executor:
-            future_to_result = {
-                executor.submit(
-                    BannerGrabber.grab_banner,
-                    host_ip,
-                    result.port,
-                    timeout,
-                ): result
-                for result in open_results
-            }
-
+        workers = min(config.MAX_BANNER_THREADS, len(open_results))
+        executor = ThreadPoolExecutor(max_workers=workers)
+        future_to_result = {
+            executor.submit(
+                BannerGrabber.grab_banner,
+                host_ip,
+                result.port,
+                timeout,
+            ): result
+            for result in open_results
+        }
+        try:
             for future in as_completed(future_to_result):
+                if (
+                    self._orchestrator is not None
+                    and self._orchestrator.cancel_event.is_set()
+                ):
+                    raise ScanCancelledError(
+                        "Fase de banners cancelada por el usuario."
+                    )
                 result = future_to_result[future]
                 try:
                     result.banner = future.result()
                 except Exception:
                     result.banner = None
-
+        finally:
+            cancelled = (
+                self._orchestrator is not None
+                and self._orchestrator.cancel_event.is_set()
+            )
+            if cancelled:
+                for future in future_to_result:
+                    future.cancel()
+            executor.shutdown(
+                wait=not cancelled,
+                cancel_futures=cancelled,
+            )
         return results
 
     def _apply_go_banners(
@@ -292,40 +330,34 @@ class PortScannerCLI:
         results: List[ScanResult],
         timeout: float,
     ) -> List[ScanResult]:
-        """Obtiene banners usando el motor Go y los agrega a los resultados."""
-        open_ports = [
-            result.port for result in results if result.is_open is True
-        ]
-
+        """Obtiene banners Go para resultados abiertos."""
+        open_ports = [result.port for result in results if result.is_open is True]
         if not open_ports:
-            print("ℹ️  No hay puertos abiertos para obtener banners con Go")
             return results
 
         go_bridge = GoBannerBridge()
-
         if not go_bridge.is_available():
             raise FileNotFoundError(
-                "No se encontró el binario Go en go-banner/go-banner. "
-                "Compílalo con: cd go-banner && go build -o go-banner"
+                "No se encontró el binario Go. " "Ejecuta ./scripts/build_all.sh."
             )
-
-        print("🐹 Banner engine seleccionado: Go")
         raw_banners = go_bridge.grab_banners(
             host=host_ip,
             ports=open_ports,
             timeout=timeout,
+            cancel_event=(
+                self._orchestrator.cancel_event
+                if self._orchestrator is not None
+                else None
+            ),
         )
-
         banners_by_port = {
-            int(item.get("port")): item.get("banner") or None
+            int(item["port"]): item.get("banner") or None
             for item in raw_banners
             if item.get("port") is not None
         }
-
         for result in results:
             if result.port in banners_by_port:
                 result.banner = banners_by_port[result.port]
-
         return results
 
     def _apply_requested_banners(
@@ -335,19 +367,9 @@ class PortScannerCLI:
         banner_engine: str,
         timeout: float,
     ) -> List[ScanResult]:
-        """Aplica la misma fase explícita de banners tras Python o Rust."""
         if banner_engine == "go":
-            return self._apply_go_banners(
-                host_ip=host_ip,
-                results=results,
-                timeout=timeout,
-            )
-
-        return self._apply_python_banners(
-            host_ip=host_ip,
-            results=results,
-            timeout=timeout,
-        )
+            return self._apply_go_banners(host_ip, results, timeout)
+        return self._apply_python_banners(host_ip, results, timeout)
 
     def _generate_report(
         self,
@@ -356,89 +378,28 @@ class PortScannerCLI:
         output_file: str,
         report_format: str,
     ) -> str:
-        """Genera el reporte en el formato solicitado."""
-        if report_format == "json":
-            return ReportGenerator.generate_json_report(
-                results,
-                target,
-                output_file,
-            )
-        if report_format == "csv":
-            return ReportGenerator.generate_csv_report(
-                results,
-                target,
-                output_file,
-            )
-        if report_format == "html":
-            return ReportGenerator.generate_html_report(
-                results,
-                target,
-                output_file,
-            )
-        return ReportGenerator.generate_text_report(
+        return ScanOrchestrator.generate_report(
             results,
             target,
             output_file,
+            report_format,
         )
-
-    @staticmethod
-    def _safe_filename_component(value: str) -> str:
-        """Convierte un objetivo validado en un componente de nombre seguro."""
-        sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", value)
-        sanitized = sanitized.strip("._")
-        return sanitized or "target"
 
     def _resolve_output_path(
         self,
         host: str,
         report_format: str,
-        output: str = None,
-        report_dir: str = None,
-        timestamp: str = None,
+        output: Optional[str] = None,
+        report_dir: Optional[str] = None,
+        timestamp: Optional[str] = None,
     ) -> Path:
-        """Resuelve la ruta de salida y crea su carpeta de forma segura."""
-        report_directory = Path(
-            report_dir or config.DEFAULT_REPORT_DIR
-        ).expanduser()
-        extension_by_format = {
-            "text": ".txt",
-            "json": ".json",
-            "csv": ".csv",
-            "html": ".html",
-        }
-        extension = extension_by_format[report_format]
-
-        if output:
-            requested_path = Path(output).expanduser()
-            if requested_path.is_absolute() or requested_path.parent != Path("."):
-                output_path = requested_path
-            else:
-                output_path = report_directory / requested_path
-
-            if not output_path.suffix:
-                output_path = output_path.with_suffix(extension)
-        else:
-            safe_host = self._safe_filename_component(host)
-            resolved_timestamp = timestamp or datetime.datetime.now().strftime(
-                "%Y%m%d_%H%M%S"
-            )
-            base_output_path = report_directory / (
-                f"scan_report_{safe_host}_{resolved_timestamp}{extension}"
-            )
-            output_path = base_output_path
-            collision_number = 2
-
-            while output_path.exists():
-                output_path = base_output_path.with_name(
-                    (
-                        f"{base_output_path.stem}_{collision_number}"
-                        f"{base_output_path.suffix}"
-                    )
-                )
-                collision_number += 1
-
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        return output_path
+        return ScanOrchestrator().resolve_output_path(
+            host,
+            report_format,
+            output,
+            report_dir,
+            timestamp,
+        )
 
     @staticmethod
     def _display_results(
@@ -447,99 +408,67 @@ class PortScannerCLI:
         persisted_report: str,
         report_format: str,
     ) -> None:
-        """Muestra siempre todos los hallazgos reportables en formato legible."""
-        if report_format == "text":
-            console_report = persisted_report
-        else:
-            console_report = ReportGenerator.generate_text_report(
-                results,
-                target,
-            )
+        """Compatibilidad con consumidores internos del Hito 2."""
+        from src.reporter import ReportGenerator
 
-        print("\n🔎 Resultados encontrados:")
+        console_report = (
+            persisted_report
+            if report_format == "text"
+            else ReportGenerator.generate_text_report(results, target)
+        )
+        print("\nRESULTADOS")
         print(console_report)
 
-    def run(self):
-        """Ejecuta la interfaz de línea de comandos."""
+    @staticmethod
+    def _launch_tui(request: ScanRequest) -> None:
+        try:
+            from src.tui import launch_tui
+        except ImportError as error:
+            if error.name and error.name.startswith("textual"):
+                raise RuntimeError(
+                    "Textual no está instalado. Ejecuta "
+                    "python3 -m pip install -r requirements.txt."
+                ) from error
+            raise
+        launch_tui(request)
+
+    def run(self) -> None:
+        """Valida la CLI y ejecuta salida lineal o monitor TUI."""
         args = self.parser.parse_args()
-
+        args = self._apply_profile_defaults(args)
         if not self.validate_arguments(args):
-            sys.exit(1)
+            raise SystemExit(1)
 
-        host_ip = NetworkUtils.resolve_host(args.host)
-        if not host_ip:
-            print(f"❌ Error: No se pudo resolver el host '{args.host}'")
-            sys.exit(1)
+        request = ScanRequest.from_namespace(args)
+        if getattr(args, "tui", False):
+            self._launch_tui(request)
+            return
 
-        print(f"🎯 Iniciando escaneo de {args.host} ({host_ip})")
-
-        scanner = PortScanner(timeout=args.timeout, max_threads=args.threads)
-
-        if args.verbose:
-
-            def progress_callback(progress, result):
-                if result.is_open is True:
-                    print(f"✅ Puerto {result.port} abierto - {result.service}")
-
-            scanner.progress_callback = progress_callback
+        presenter = ConsolePresenter(verbose=args.verbose)
+        self._orchestrator = ScanOrchestrator(
+            event_callback=presenter.handle,
+            scan_python=self._scan_with_python,
+            scan_rust=self._scan_with_rust,
+            apply_banners=self._apply_requested_banners,
+            resolve_output_path=self._resolve_output_path,
+            generate_report=self._generate_report,
+        )
 
         try:
-            if args.engine == "rust":
-                self._scan_with_rust(scanner, host_ip, args)
-            else:
-                self._scan_with_python(scanner, host_ip, args)
-
-            if args.banner_grab:
-                self._apply_requested_banners(
-                    host_ip=host_ip,
-                    results=scanner.results,
-                    banner_engine=args.banner_engine,
-                    timeout=config.BANNER_TIMEOUT,
-                )
-
-            output_file = self._resolve_output_path(
-                host=args.host,
-                report_format=args.format,
-                output=args.output,
-                report_dir=args.report_dir,
-            )
-
-            persisted_report = self._generate_report(
-                results=scanner.results,
-                target=args.host,
-                output_file=str(output_file),
-                report_format=args.format,
-            )
-            self._display_results(
-                results=scanner.results,
-                target=args.host,
-                persisted_report=persisted_report,
-                report_format=args.format,
-            )
-
-            stats = scanner.get_statistics()
-            print("\n📊 Estadísticas del escaneo:")
-            print(f"   • Motor de escaneo: {args.engine}")
-            print(f"   • Motor de banners: {args.banner_engine if args.banner_grab else 'no usado'}")
-            print(f"   • Puertos escaneados: {stats['total_ports']}")
-            print(f"   • Puertos abiertos: {stats['open_ports']}")
-            print(f"   • Puertos cerrados: {stats['closed_ports']}")
-            print(f"   • Puertos filtrados: {stats['filtered_ports']}")
-            print(f"   • Tiempo promedio: {stats['average_response_time']:.3f}s")
-            print(f"   • Reporte guardado en: {output_file}")
-
-        except KeyboardInterrupt:
-            print("\n⏹ Escaneo interrumpido por el usuario")
-            sys.exit(1)
+            outcome = self._orchestrator.run(request)
+            presenter.display_outcome(outcome)
+        except ScanCancelledError:
+            raise SystemExit(130)
         except Exception as error:
-            print(f"❌ Error durante el escaneo: {error}")
-            sys.exit(1)
+            print(f"Error durante el escaneo: {error}")
+            raise SystemExit(1)
+        finally:
+            self._orchestrator = None
 
 
-def main():
-    """Función principal."""
-    cli = PortScannerCLI()
-    cli.run()
+def main() -> None:
+    """Punto de entrada secundario para compatibilidad."""
+    PortScannerCLI().run()
 
 
 if __name__ == "__main__":

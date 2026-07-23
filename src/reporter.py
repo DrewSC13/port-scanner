@@ -4,7 +4,7 @@ import csv
 import datetime
 import html
 import json
-from typing import Any, List
+from typing import Any, List, Optional
 
 from src.scanner import ScanResult
 
@@ -18,9 +18,8 @@ class ReportGenerator:
         text = str(value)
         candidate = text.lstrip(" \t\r\n\ufeff")
 
-        if (
-            text.startswith(("\t", "\r", "\n"))
-            or candidate.startswith(("=", "+", "-", "@"))
+        if text.startswith(("\t", "\r", "\n")) or candidate.startswith(
+            ("=", "+", "-", "@")
         ):
             return f"'{text}"
 
@@ -41,15 +40,19 @@ class ReportGenerator:
         )
 
     @staticmethod
-    def generate_text_report(results: List[ScanResult], target: str, output_file: str = None) -> str:
+    def generate_text_report(
+        results: List[ScanResult],
+        target: str,
+        output_file: Optional[str] = None,
+    ) -> str:
         """
         Genera un reporte en formato texto
-        
+
         Args:
             results: Lista de resultados del escaneo
             target: Objetivo del escaneo
             output_file: Archivo de salida (opcional)
-            
+
         Returns:
             Contenido del reporte
         """
@@ -61,7 +64,7 @@ class ReportGenerator:
             f"Fecha: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             f"Puertos abiertos: {len(open_results)}",
             "=" * 60,
-            ""
+            "",
         ]
 
         if not open_results:
@@ -74,25 +77,29 @@ class ReportGenerator:
                 report.append(f"Banner: {result.banner.strip()}")
             report.append(f"Tiempo de respuesta: {result.response_time:.3f}s")
             report.append("-" * 40)
-        
+
         report_content = "\n".join(report)
-        
+
         if output_file:
-            with open(output_file, 'w', encoding='utf-8') as f:
+            with open(output_file, "w", encoding="utf-8") as f:
                 f.write(report_content)
-        
+
         return report_content
-    
+
     @staticmethod
-    def generate_json_report(results: List[ScanResult], target: str, output_file: str = None) -> str:
+    def generate_json_report(
+        results: List[ScanResult],
+        target: str,
+        output_file: Optional[str] = None,
+    ) -> str:
         """
         Genera un reporte en formato JSON
-        
+
         Args:
             results: Lista de resultados del escaneo
             target: Objetivo del escaneo
             output_file: Archivo de salida (opcional)
-            
+
         Returns:
             JSON string del reporte
         """
@@ -106,70 +113,80 @@ class ReportGenerator:
                     "port": result.port,
                     "service": result.service,
                     "banner": result.banner,
-                    "response_time": result.response_time
+                    "response_time": result.response_time,
                 }
                 for result in open_results
-            ]
+            ],
         }
-        
+
         json_content = json.dumps(report_data, indent=2, ensure_ascii=False)
-        
+
         if output_file:
-            with open(output_file, 'w', encoding='utf-8') as f:
+            with open(output_file, "w", encoding="utf-8") as f:
                 f.write(json_content)
-        
+
         return json_content
-    
+
     @staticmethod
-    def generate_csv_report(results: List[ScanResult], target: str, output_file: str = None) -> str:
+    def generate_csv_report(
+        results: List[ScanResult],
+        target: str,
+        output_file: Optional[str] = None,
+    ) -> str:
         """
         Genera un reporte en formato CSV
-        
+
         Args:
             results: Lista de resultados del escaneo
             target: Objetivo del escaneo
             output_file: Archivo de salida (opcional)
-            
+
         Returns:
             Contenido CSV del reporte
         """
         import io
-        
+
         open_results = ReportGenerator._get_reportable_results(results)
         output = io.StringIO()
         writer = csv.writer(output)
-        
+
         # Encabezados
         writer.writerow(["Port", "Service", "Banner", "Response Time", "Status"])
-        
+
         # Datos
         for result in open_results:
-            writer.writerow([
-                result.port,
-                ReportGenerator._neutralize_csv_cell(result.service),
-                ReportGenerator._neutralize_csv_cell(result.banner or "N/A"),
-                f"{result.response_time:.3f}",
-                "OPEN"
-            ])
-        
+            writer.writerow(
+                [
+                    result.port,
+                    ReportGenerator._neutralize_csv_cell(result.service),
+                    ReportGenerator._neutralize_csv_cell(result.banner or "N/A"),
+                    f"{result.response_time:.3f}",
+                    "OPEN",
+                ]
+            )
+
         csv_content = output.getvalue()
-        
+
         if output_file:
-            with open(output_file, 'w', newline='', encoding='utf-8') as f:
+            with open(output_file, "w", newline="", encoding="utf-8") as f:
                 f.write(csv_content)
-        
+
         return csv_content
-    
+
     @staticmethod
-    def generate_html_report(results: List[ScanResult], target: str, output_file: str = None) -> str:
+    def generate_html_report(
+        results: List[ScanResult],
+        target: str,
+        output_file: Optional[str] = None,
+    ) -> str:
         """
         Genera un reporte en formato HTML
-        
+
         Args:
             results: Lista de resultados del escaneo
             target: Objetivo del escaneo
             output_file: Archivo de salida (opcional)
-            
+
         Returns:
             Contenido HTML del reporte
         """
@@ -192,15 +209,13 @@ class ReportGenerator:
                     f"<pre>{safe_banner}</pre></div>"
                 )
 
-            result_blocks.append(
-                f"""
+            result_blocks.append(f"""
                 <div class="result">
                     <h3>Puerto {result.port}/{safe_protocol} - {safe_service}</h3>
                     <p><strong>Tiempo de respuesta:</strong> {result.response_time:.3f}s</p>
                     {banner_block}
                 </div>
-                """
-            )
+                """)
 
         html_template = f"""
         <!DOCTYPE html>
@@ -229,9 +244,9 @@ class ReportGenerator:
         </body>
         </html>
         """
-        
+
         if output_file:
-            with open(output_file, 'w', encoding='utf-8') as f:
+            with open(output_file, "w", encoding="utf-8") as f:
                 f.write(html_template)
-        
+
         return html_template

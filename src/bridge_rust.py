@@ -9,7 +9,10 @@ resultados en formato JSON.
 import json
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List
+import threading
+from typing import Any, Dict, List, Optional
+
+from src.errors import ScanCancelledError
 
 
 class RustScannerBridge:
@@ -34,6 +37,7 @@ class RustScannerBridge:
         ports: List[int],
         timeout: float = 2.0,
         workers: int = 100,
+        cancel_event: Optional[threading.Event] = None,
     ) -> List[Dict[str, Any]]:
         """
         Ejecuta el escáner Rust.
@@ -71,23 +75,36 @@ class RustScannerBridge:
             str(workers),
         ]
 
-        try:
-            completed = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-        except subprocess.CalledProcessError as error:
-            raise RuntimeError(
-                f"Error ejecutando motor Rust: {error.stderr.strip()}"
-            ) from error
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        while True:
+            try:
+                stdout, stderr = process.communicate(timeout=0.1)
+                break
+            except subprocess.TimeoutExpired:
+                if cancel_event is None or not cancel_event.is_set():
+                    continue
+                process.terminate()
+                try:
+                    process.communicate(timeout=1)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+                raise ScanCancelledError("Motor Rust cancelado por el usuario.")
+
+        if process.returncode != 0:
+            raise RuntimeError(f"Error ejecutando motor Rust: {stderr.strip()}")
 
         try:
-            data = json.loads(completed.stdout)
+            data = json.loads(stdout)
         except json.JSONDecodeError as error:
             raise RuntimeError(
-                f"Rust devolvió una respuesta inválida: {completed.stdout}"
+                f"Rust devolvió una respuesta inválida: {stdout}"
             ) from error
 
         if not isinstance(data, list):

@@ -429,7 +429,7 @@ class TestCliReportOutput(unittest.TestCase):
                 " ".join(str(value) for value in call.args)
                 for call in print_mock.call_args_list
             )
-            self.assertIn("🔎 Resultados encontrados:", printed)
+            self.assertIn("RESULTADOS", printed)
             self.assertIn("Puerto: 45001/TCP", printed)
             self.assertIn("Servicio: First", printed)
             self.assertIn("Banner: banner-one", printed)
@@ -569,7 +569,7 @@ class TestReportableResultFiltering(unittest.TestCase):
                 port=44003,
                 is_open=True,
                 service="\tSAFE",
-                banner="\ufeff=HYPERLINK(\"https://example.invalid\")",
+                banner='\ufeff=HYPERLINK("https://example.invalid")',
                 response_time=0.03,
             ),
         ]
@@ -587,7 +587,7 @@ class TestReportableResultFiltering(unittest.TestCase):
         self.assertEqual(rows[2]["Service"], "'\tSAFE")
         self.assertEqual(
             rows[2]["Banner"],
-            "'\ufeff=HYPERLINK(\"https://example.invalid\")",
+            '\'\ufeff=HYPERLINK("https://example.invalid")',
         )
 
 

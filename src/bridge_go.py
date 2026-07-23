@@ -9,7 +9,10 @@ el banner grabbing actual en Python.
 import json
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Any
+import threading
+from typing import Any, Dict, List, Optional
+
+from src.errors import ScanCancelledError
 
 
 class GoBannerBridge:
@@ -33,6 +36,7 @@ class GoBannerBridge:
         host: str,
         ports: List[int],
         timeout: float = 3.0,
+        cancel_event: Optional[threading.Event] = None,
     ) -> List[Dict[str, Any]]:
         """
         Ejecuta el banner grabber Go.
@@ -67,23 +71,36 @@ class GoBannerBridge:
             str(timeout),
         ]
 
-        try:
-            completed = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-        except subprocess.CalledProcessError as error:
-            raise RuntimeError(
-                f"Error ejecutando motor Go: {error.stderr.strip()}"
-            ) from error
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        while True:
+            try:
+                stdout, stderr = process.communicate(timeout=0.1)
+                break
+            except subprocess.TimeoutExpired:
+                if cancel_event is None or not cancel_event.is_set():
+                    continue
+                process.terminate()
+                try:
+                    process.communicate(timeout=1)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+                raise ScanCancelledError("Motor Go cancelado por el usuario.")
+
+        if process.returncode != 0:
+            raise RuntimeError(f"Error ejecutando motor Go: {stderr.strip()}")
 
         try:
-            data = json.loads(completed.stdout)
+            data = json.loads(stdout)
         except json.JSONDecodeError as error:
             raise RuntimeError(
-                f"Go devolvió una respuesta inválida: {completed.stdout}"
+                f"Go devolvió una respuesta inválida: {stdout}"
             ) from error
 
         if not isinstance(data, list):
