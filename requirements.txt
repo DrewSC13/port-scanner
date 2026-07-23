@@ -5,6 +5,7 @@ pytest-cov>=2.0
 black>=21.0
 flake8>=3.9
 mypy>=0.900
+textual>=0.80
 
 # Opcional: Para futuras características
 requests>=2.25

@@ -8,7 +8,7 @@ LONG_DESCRIPTION = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="portscanner-pro",
-    version="2.0.0",
+    version="2.2.0",
     author="Security Team",
     author_email="security@example.com",
     description="CicadaPort: escáner de puertos multi-engine para auditorías autorizadas",
@@ -31,6 +31,9 @@ setup(
         "Topic :: System :: Networking",
     ],
     python_requires=">=3.10",
+    install_requires=[
+        "textual>=0.80",
+    ],
     entry_points={
         "console_scripts": [
             "cicadaport=main:main",

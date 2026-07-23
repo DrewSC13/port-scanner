@@ -85,9 +85,7 @@ jobs:
 
           python -m venv "$package_venv"
 
-          "$package_venv/bin/python" -m pip install \
-            --no-deps \
-            "$wheel_path"
+          "$package_venv/bin/python" -m pip install "$wheel_path"
 
           "$package_venv/bin/python" -m pip check
 
@@ -95,7 +93,7 @@ jobs:
             cd "$RUNNER_TEMP"
 
             "$package_venv/bin/python" -c \
-              'import config, main, src.cli; print("imports: ok")'
+              'import config, main, src.cli, src.tui; print("imports: ok")'
 
             "$package_venv/bin/cicadaport" --version
             "$package_venv/bin/cicadaport" --help

@@ -64,6 +64,11 @@ Run the Go commands from `go-banner/`.
 
 ## Result contract
 
+- CLI and TUI must consume `ScanOrchestrator`; presentation code must not
+  implement network scanning.
+- `safe`, `standard`, `deep`, and `custom` must remain deterministic and
+  covered by tests.
+- Cancellation must propagate to Python workers and native subprocesses.
 - `PortScanner.results` contains one internal result for every requested port.
 - Internal results may be open, closed, or filtered.
 - Reportable results contain only entries where `is_open is True`.

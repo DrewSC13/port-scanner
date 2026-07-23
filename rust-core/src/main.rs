@@ -162,9 +162,12 @@ fn service_name(port: u16) -> &'static str {
 }
 
 fn resolve_socket_addr(host: &str, port: u16) -> Option<SocketAddr> {
-    let target = format!("{host}:{port}");
+    let normalized_host = host
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .unwrap_or(host);
 
-    target
+    (normalized_host, port)
         .to_socket_addrs()
         .ok()
         .and_then(|mut addresses| addresses.next())
@@ -248,5 +251,22 @@ fn main() {
     match serde_json::to_string(&results) {
         Ok(json) => println!("{json}"),
         Err(error) => print_error_and_exit(&format!("Error generando JSON: {error}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_socket_addr;
+
+    #[test]
+    fn resolves_ipv4_literal() {
+        let address = resolve_socket_addr("127.0.0.1", 443).expect("IPv4 válida");
+        assert!(address.is_ipv4());
+    }
+
+    #[test]
+    fn resolves_bracketed_ipv6_literal() {
+        let address = resolve_socket_addr("[::1]", 443).expect("IPv6 válida");
+        assert!(address.is_ipv6());
     }
 }
