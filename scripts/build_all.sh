@@ -3,7 +3,7 @@
 set -e
 
 echo "======================================"
-echo " PortScanner Pro - Build All"
+echo " CicadaPort - Build All"
 echo " Python + Rust + Go"
 echo "======================================"
 echo ""

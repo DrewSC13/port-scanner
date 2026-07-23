@@ -24,10 +24,10 @@ class PortScannerCLI:
     def _setup_parser(self) -> argparse.ArgumentParser:
         """Configura el parser de argumentos."""
         parser = argparse.ArgumentParser(
-            description="🔍 Escáner de Puertos Profesional - Herramienta de auditoría de seguridad",
+            description="🔍 CicadaPort - Herramienta de auditoría de puertos",
             epilog=(
                 "Ejemplos de uso:\n"
-                "  python main.py google.com\n"
+                "  python main.py localhost\n"
                 "  python main.py 192.168.1.1 -p 20-443 -t 200 --format json\n"
                 "  python main.py localhost --common-ports --banner-grab\n"
                 "  python main.py localhost --engine python\n"
@@ -106,7 +106,7 @@ class PortScannerCLI:
         parser.add_argument(
             "--version",
             action="version",
-            version="PortScanner Pro 2.1",
+            version="CicadaPort 2.1",
         )
 
         return parser
@@ -161,7 +161,11 @@ class PortScannerCLI:
         }
         """
         port = int(result.get("port", 0))
-        is_open = bool(result.get("is_open", False))
+        is_open = result.get("is_open")
+        if not isinstance(is_open, bool):
+            raise ValueError(
+                "El resultado Rust debe incluir 'is_open' como booleano."
+            )
 
         service = result.get("service")
         if not service:
@@ -208,18 +212,23 @@ class PortScannerCLI:
         else:
             print(f"🔍 Rust escaneando {len(ports)} puertos...")
 
-        raw_results = rust_bridge.scan(
-            host=host_ip,
-            ports=ports,
-            timeout=args.timeout,
-            workers=args.threads,
-        )
+        scanner.start_external_scan()
 
-        results = [self._convert_rust_result(item) for item in raw_results]
+        try:
+            raw_results = rust_bridge.scan(
+                host=host_ip,
+                ports=ports,
+                timeout=args.timeout,
+                workers=args.threads,
+            )
+            internal_results = [
+                self._convert_rust_result(item) for item in raw_results
+            ]
+        except Exception:
+            scanner.finish_external_scan([])
+            raise
 
-        scanner.results = results
-
-        return results
+        return scanner.finish_external_scan(internal_results)
 
     def _apply_go_banners(
         self,
@@ -297,7 +306,7 @@ class PortScannerCLI:
         if args.verbose:
 
             def progress_callback(progress, result):
-                if result.is_open:
+                if result.is_open is True:
                     print(f"✅ Puerto {result.port} abierto - {result.service}")
 
             scanner.progress_callback = progress_callback
@@ -320,7 +329,7 @@ class PortScannerCLI:
             output_file = args.output or f"scan_report_{safe_host}_{timestamp}.{args.format}"
 
             self._generate_report(
-                results=results,
+                results=scanner.results,
                 target=args.host,
                 output_file=output_file,
                 report_format=args.format,

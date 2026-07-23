@@ -81,7 +81,7 @@ jobs:
             exit 1
           fi
 
-          package_venv="${RUNNER_TEMP}/portscanner-package-venv"
+          package_venv="${RUNNER_TEMP}/cicadaport-package-venv"
 
           python -m venv "$package_venv"
 
@@ -97,8 +97,9 @@ jobs:
             "$package_venv/bin/python" -c \
               'import config, main, src.cli; print("imports: ok")'
 
+            "$package_venv/bin/cicadaport" --version
+            "$package_venv/bin/cicadaport" --help
             "$package_venv/bin/portscanner" --version
-            "$package_venv/bin/portscanner" --help
           )
 
   rust:

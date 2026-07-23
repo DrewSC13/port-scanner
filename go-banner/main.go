@@ -147,7 +147,7 @@ func grabBanner(host string, port int, timeout time.Duration) BannerResult {
 	}
 
 	if shouldSendHTTPProbe(port) {
-		request := fmt.Sprintf("HEAD / HTTP/1.0\r\nHost: %s\r\nUser-Agent: PortScanner-Pro-Go\r\n\r\n", host)
+		request := fmt.Sprintf("HEAD / HTTP/1.0\r\nHost: %s\r\nUser-Agent: CicadaPort-Go\r\n\r\n", host)
 		_, _ = conn.Write([]byte(request))
 	}
 

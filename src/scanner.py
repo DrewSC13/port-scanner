@@ -1,31 +1,42 @@
-"""
-Lógica principal del escáner de puertos - Versión Mejorada
-"""
+"""Lógica principal del escáner de puertos."""
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 import socket
 import time
-from typing import List, Dict, Any, Optional, Callable
-from dataclasses import dataclass
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Callable, Dict, List, Optional
 
-from src.network import NetworkUtils
-from src.banner import BannerGrabber
 from config import config
+from src.banner import BannerGrabber
+
 
 @dataclass
 class ScanResult:
-    """Resultado del escaneo de un puerto"""
+    """Resultado interno canónico del escaneo de un puerto."""
+
     port: int
-    is_open: bool
+    is_open: Optional[bool]
     service: str = ""
     banner: Optional[str] = None
     response_time: float = 0.0
     protocol: str = "tcp"
 
+
 class PortScanner:
-    """Escáner de puertos profesional con capacidades mejoradas"""
-    
-    def __init__(self, timeout: float = None, max_threads: int = None):
+    """
+    Escáner de puertos con un contrato único para todos los motores.
+
+    ``results`` conserva un resultado por cada puerto solicitado, incluidos los
+    cerrados o filtrados. Los valores retornados por los métodos de escaneo y
+    los obtenidos mediante ``get_reportable_results`` contienen únicamente
+    puertos cuyo estado es exactamente ``True``.
+    """
+
+    def __init__(
+        self,
+        timeout: Optional[float] = None,
+        max_threads: Optional[int] = None,
+    ) -> None:
         """
         Inicializa el escáner con configuración personalizada
         
@@ -37,10 +48,41 @@ class PortScanner:
         self.max_threads = min(max_threads or config.DEFAULT_THREADS, config.MAX_THREADS)
         self.results: List[ScanResult] = []
         self.is_scanning = False
-        self.progress_callback: Optional[Callable] = None
+        self.progress_callback: Optional[Callable[[float, ScanResult], None]] = None
         self.scan_start_time: Optional[float] = None
         self.scan_end_time: Optional[float] = None
-        
+
+    def _begin_scan(self) -> None:
+        """Reinicia el estado temporal antes de ejecutar cualquier motor."""
+        self.results = []
+        self.is_scanning = True
+        self.scan_start_time = time.time()
+        self.scan_end_time = None
+
+    def _finish_scan(self) -> None:
+        """Cierra el estado temporal y deja resultados deterministas."""
+        self.results.sort(key=lambda result: (result.protocol, result.port))
+        self.is_scanning = False
+        self.scan_end_time = time.time()
+
+    def start_external_scan(self) -> None:
+        """Inicia el registro de estado para un motor externo."""
+        self._begin_scan()
+
+    def finish_external_scan(
+        self,
+        results: List[ScanResult],
+    ) -> List[ScanResult]:
+        """
+        Registra todos los resultados de un motor externo y finaliza el estado.
+
+        Returns:
+            Lista reportable formada únicamente por puertos abiertos.
+        """
+        self.results = list(results)
+        self._finish_scan()
+        return self.get_reportable_results()
+
     def scan_port(self, host: str, port: int) -> ScanResult:
         """
         Escanea un puerto individual con manejo robusto de errores
@@ -166,9 +208,7 @@ class PortScanner:
         Returns:
             Lista de ScanResult para puertos abiertos
         """
-        self.is_scanning = True
-        self.scan_start_time = time.time()
-        self.results = []
+        self._begin_scan()
         
         total_ports = end_port - start_port + 1
         completed_ports = 0
@@ -208,12 +248,8 @@ class PortScanner:
                     )
                     self.results.append(error_result)
         
-        self.is_scanning = False
-        self.scan_end_time = time.time()
-        
-        # Retornar solo puertos abiertos
-        open_ports = [r for r in self.results if r.is_open]
-        return open_ports
+        self._finish_scan()
+        return self.get_reportable_results()
     
     def scan_common_ports(self, host: str, protocol: str = "tcp") -> List[ScanResult]:
         """
@@ -226,16 +262,8 @@ class PortScanner:
         Returns:
             Lista de ScanResult para puertos abiertos
         """
-        common_ports = list(config.COMMON_PORTS.keys())
-        if not common_ports:
-            return []
-            
-        start_port = min(common_ports)
-        end_port = max(common_ports)
-        
-        # Filtrar solo los puertos comunes en el rango
-        common_results = self.scan_range(host, start_port, end_port, protocol)
-        return [r for r in common_results if r.port in common_ports]
+        common_ports = sorted(config.COMMON_PORTS)
+        return self.scan_specific_ports(host, common_ports, protocol)
     
     def scan_specific_ports(self, host: str, ports: List[int], protocol: str = "tcp") -> List[ScanResult]:
         """
@@ -250,11 +278,11 @@ class PortScanner:
             Lista de ScanResult para puertos abiertos
         """
         if not ports:
+            self._begin_scan()
+            self._finish_scan()
             return []
             
-        self.is_scanning = True
-        self.scan_start_time = time.time()
-        self.results = []
+        self._begin_scan()
         
         scan_function = self.scan_port if protocol == "tcp" else self.scan_udp_port
         total_ports = len(ports)
@@ -281,10 +309,8 @@ class PortScanner:
                     error_result = ScanResult(port=port, is_open=False, response_time=0.0, protocol=protocol)
                     self.results.append(error_result)
         
-        self.is_scanning = False
-        self.scan_end_time = time.time()
-        
-        return [r for r in self.results if r.is_open]
+        self._finish_scan()
+        return self.get_reportable_results()
     
     def get_statistics(self) -> Dict[str, Any]:
         """
@@ -293,8 +319,8 @@ class PortScanner:
         Returns:
             Diccionario con métricas del escaneo
         """
-        open_ports = [r for r in self.results if r.is_open]
-        closed_ports = [r for r in self.results if r.is_open == False]
+        open_ports = [r for r in self.results if r.is_open is True]
+        closed_ports = [r for r in self.results if r.is_open is False]
         filtered_ports = [r for r in self.results if r.is_open is None]
         
         total_ports = len(self.results)
@@ -315,11 +341,15 @@ class PortScanner:
     
     def get_open_ports(self) -> List[ScanResult]:
         """Obtiene lista de puertos abiertos"""
-        return [r for r in self.results if r.is_open]
+        return self.get_reportable_results()
+
+    def get_reportable_results(self) -> List[ScanResult]:
+        """Obtiene únicamente resultados canónicos con estado abierto."""
+        return [result for result in self.results if result.is_open is True]
     
     def get_closed_ports(self) -> List[ScanResult]:
         """Obtiene lista de puertos cerrados"""
-        return [r for r in self.results if r.is_open == False]
+        return [r for r in self.results if r.is_open is False]
     
     def get_filtered_ports(self) -> List[ScanResult]:
         """Obtiene lista de puertos filtrados (solo UDP)"""

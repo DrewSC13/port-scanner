@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-PortScanner Pro - Escáner de puertos profesional
-Herramienta de auditoría de seguridad para profesionales
-"""
+"""Punto de entrada de CicadaPort."""
 
 import sys
 from src.cli import PortScannerCLI

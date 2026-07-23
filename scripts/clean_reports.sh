@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 echo "======================================"
-echo " PortScanner Pro - Limpiar reportes"
+echo " CicadaPort - Limpiar reportes"
 echo "======================================"
 echo ""
 

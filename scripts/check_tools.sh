@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 echo "======================================"
-echo " PortScanner Pro - Verificación"
+echo " CicadaPort - Verificación"
 echo " Python + Rust + Go"
 echo "======================================"
 echo ""
