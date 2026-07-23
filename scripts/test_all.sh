@@ -21,7 +21,7 @@ echo "[2] Probando motor Rust directamente..."
   >/tmp/portscanner_rust_test.json
 
 if command -v jq >/dev/null 2>&1; then
-    cat /tmp/portscanner_rust_test.json | jq
+    jq . /tmp/portscanner_rust_test.json
 else
     cat /tmp/portscanner_rust_test.json
 fi
@@ -35,7 +35,7 @@ echo "[3] Probando motor Go directamente..."
   >/tmp/portscanner_go_test.json
 
 if command -v jq >/dev/null 2>&1; then
-    cat /tmp/portscanner_go_test.json | jq
+    jq . /tmp/portscanner_go_test.json
 else
     cat /tmp/portscanner_go_test.json
 fi
