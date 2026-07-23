@@ -223,9 +223,19 @@ class PortScannerCLI:
         start_port, end_port = port_range
         return list(range(start_port, end_port + 1))
 
-    def _convert_rust_result(self, result: Dict[str, Any]) -> ScanResult:
+    def _convert_rust_result(
+        self,
+        result: Dict[str, Any],
+        *,
+        target: str = "",
+        address: str = "",
+    ) -> ScanResult:
         """Compatibilidad interna para normalizar resultados Rust."""
-        return ScanOrchestrator._convert_rust_result(result)
+        return ScanOrchestrator._convert_rust_result(
+            result,
+            target=target,
+            address=address,
+        )
 
     def _scan_with_python(
         self,
@@ -268,7 +278,14 @@ class PortScannerCLI:
                     else None
                 ),
             )
-            results = [self._convert_rust_result(item) for item in raw_results]
+            results = [
+                self._convert_rust_result(
+                    item,
+                    target=host_ip,
+                    address=host_ip,
+                )
+                for item in raw_results
+            ]
         except Exception:
             scanner.finish_external_scan([])
             raise

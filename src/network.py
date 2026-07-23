@@ -2,11 +2,14 @@
 Utilidades de red y validación
 """
 
-import socket
 import ipaddress
-from typing import Optional, Tuple, List
-from urllib.parse import urlparse
 import re
+import socket
+from typing import List, Optional, Tuple
+
+from src.contracts import TargetIdentity
+from src.targets import TargetResolutionError, TargetResolver
+
 
 class NetworkUtils:
     """Utilidades para manejo de red y validaciones"""
@@ -23,15 +26,15 @@ class NetworkUtils:
             IP address o None si no se puede resolver
         """
         try:
-            # Verificar si es una IP válida
-            ipaddress.ip_address(host)
-            return host
-        except ValueError:
-            # Es un hostname, resolverlo
-            try:
-                return socket.gethostbyname(host)
-            except socket.gaierror:
-                return None
+            identities = NetworkUtils.resolve_hosts(host)
+        except TargetResolutionError:
+            return None
+        return identities[0].address if identities else None
+
+    @staticmethod
+    def resolve_hosts(host: str) -> List[TargetIdentity]:
+        """Resuelve todas las direcciones IPv4/IPv6 en orden determinista."""
+        return TargetResolver().resolve(host)
     
     @staticmethod
     def validate_port_range(port_range: str) -> Optional[Tuple[int, int]]:
@@ -59,9 +62,16 @@ class NetworkUtils:
     @staticmethod
     def is_valid_host(host: str) -> bool:
         """Verifica si un host es válido"""
+        if not isinstance(host, str) or not host:
+            return False
         try:
             # Verificar formato de IP
-            ipaddress.ip_address(host)
+            normalized = (
+                host[1:-1]
+                if host.startswith("[") and host.endswith("]")
+                else host
+            )
+            ipaddress.ip_address(normalized)
             return True
         except ValueError:
             # Verificar formato de hostname
