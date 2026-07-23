@@ -9,7 +9,9 @@ echo "======================================"
 echo ""
 
 echo "[1] Ejecutando pruebas Python..."
-CICADAPORT_REQUIRE_RUST_INTEGRATION=1 pytest -v
+CICADAPORT_REQUIRE_RUST_INTEGRATION=1 \
+CICADAPORT_REQUIRE_GO_INTEGRATION=1 \
+pytest -v
 
 echo ""
 echo "[2] Probando motor Rust directamente..."

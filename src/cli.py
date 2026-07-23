@@ -3,11 +3,13 @@ Interfaz de línea de comandos profesional
 """
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import datetime
 import sys
 from typing import Any, Dict, List
 
 from config import config
+from src.banner import BannerGrabber
 from src.bridge_go import GoBannerBridge
 from src.bridge_rust import RustScannerBridge
 from src.network import NetworkUtils
@@ -88,7 +90,10 @@ class PortScannerCLI:
         output_group.add_argument(
             "--banner-grab",
             action="store_true",
-            help="Intentar obtener banners de servicios",
+            help=(
+                "Obtener banners explícitamente después del escaneo "
+                "(desactivado por defecto)"
+            ),
         )
         output_group.add_argument(
             "--banner-engine",
@@ -230,6 +235,44 @@ class PortScannerCLI:
 
         return scanner.finish_external_scan(internal_results)
 
+    def _apply_python_banners(
+        self,
+        host_ip: str,
+        results: List[ScanResult],
+        timeout: float,
+    ) -> List[ScanResult]:
+        """Obtiene banners con Python solo para resultados abiertos."""
+        open_results = [
+            result for result in results if result.is_open is True
+        ]
+
+        if not open_results:
+            print("ℹ️  No hay puertos abiertos para obtener banners con Python")
+            return results
+
+        print("🐍 Banner engine seleccionado: Python")
+        worker_count = min(config.MAX_BANNER_THREADS, len(open_results))
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_to_result = {
+                executor.submit(
+                    BannerGrabber.grab_banner,
+                    host_ip,
+                    result.port,
+                    timeout,
+                ): result
+                for result in open_results
+            }
+
+            for future in as_completed(future_to_result):
+                result = future_to_result[future]
+                try:
+                    result.banner = future.result()
+                except Exception:
+                    result.banner = None
+
+        return results
+
     def _apply_go_banners(
         self,
         host_ip: str,
@@ -237,7 +280,9 @@ class PortScannerCLI:
         timeout: float,
     ) -> List[ScanResult]:
         """Obtiene banners usando el motor Go y los agrega a los resultados."""
-        open_ports = [result.port for result in results if result.is_open]
+        open_ports = [
+            result.port for result in results if result.is_open is True
+        ]
 
         if not open_ports:
             print("ℹ️  No hay puertos abiertos para obtener banners con Go")
@@ -259,7 +304,7 @@ class PortScannerCLI:
         )
 
         banners_by_port = {
-            int(item.get("port")): item.get("banner")
+            int(item.get("port")): item.get("banner") or None
             for item in raw_banners
             if item.get("port") is not None
         }
@@ -269,6 +314,27 @@ class PortScannerCLI:
                 result.banner = banners_by_port[result.port]
 
         return results
+
+    def _apply_requested_banners(
+        self,
+        host_ip: str,
+        results: List[ScanResult],
+        banner_engine: str,
+        timeout: float,
+    ) -> List[ScanResult]:
+        """Aplica la misma fase explícita de banners tras Python o Rust."""
+        if banner_engine == "go":
+            return self._apply_go_banners(
+                host_ip=host_ip,
+                results=results,
+                timeout=timeout,
+            )
+
+        return self._apply_python_banners(
+            host_ip=host_ip,
+            results=results,
+            timeout=timeout,
+        )
 
     def _generate_report(
         self,
@@ -313,14 +379,15 @@ class PortScannerCLI:
 
         try:
             if args.engine == "rust":
-                results = self._scan_with_rust(scanner, host_ip, args)
+                self._scan_with_rust(scanner, host_ip, args)
             else:
-                results = self._scan_with_python(scanner, host_ip, args)
+                self._scan_with_python(scanner, host_ip, args)
 
-            if args.banner_grab and args.banner_engine == "go":
-                results = self._apply_go_banners(
+            if args.banner_grab:
+                self._apply_requested_banners(
                     host_ip=host_ip,
-                    results=results,
+                    results=scanner.results,
+                    banner_engine=args.banner_engine,
                     timeout=config.BANNER_TIMEOUT,
                 )
 

@@ -70,6 +70,10 @@ Run the Go commands from `go-banner/`.
 - TXT, JSON, CSV, and HTML must apply the same reportable filter.
 - Python and Rust must agree on open/closed states and statistics for the same
   deterministic localhost fixture.
+- TCP scans must not send application payloads unless `--banner-grab` is set.
+- Python and Go banner engines must use the same TLS, probe, sanitization, and
+  output-length policy.
+- HTML must escape target and service data; CSV must neutralize formula cells.
 
 Any change to this contract requires tests in the same commit.
 
