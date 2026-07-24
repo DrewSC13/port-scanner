@@ -94,6 +94,8 @@ class TestCicadaPortTui(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app._request.timeout, 1.25)
             self.assertEqual(app._request.engine, "python")
             self.assertEqual(app._request.banner_engine, "go")
+            self.assertEqual(app._effective_scan_engine, "rust")
+            self.assertEqual(app._effective_banner_engine, "go")
             self.assertEqual(app._request.report_format, "json")
             self.assertEqual(app._total_ports, 424)
 
@@ -150,7 +152,7 @@ class TestCliToTuiFlow(unittest.TestCase):
                 "--profile",
                 "deep",
                 "--engine",
-                "python",
+                "auto",
                 "--format",
                 "json",
                 "--tui",
@@ -168,7 +170,7 @@ class TestCliToTuiFlow(unittest.TestCase):
         self.assertEqual(request.host, "localhost")
         self.assertEqual(request.profile, "deep")
         self.assertEqual(request.ports, "1-65535")
-        self.assertEqual(request.engine, "python")
+        self.assertEqual(request.engine, "auto")
         self.assertEqual(request.report_format, "json")
 
     def test_tui_still_requires_a_target_in_the_shell(self):

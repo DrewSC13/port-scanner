@@ -4,7 +4,7 @@ set -e
 
 echo "======================================"
 echo " CicadaPort - Test All"
-echo " Python + Rust + Go"
+echo " Python orchestrator + Rust scan + Go banners"
 echo "======================================"
 echo ""
 
@@ -78,12 +78,29 @@ else
 fi
 
 echo ""
-echo "[4] Probando CLI con motor Python..."
-python3 main.py localhost -p 20-25 --engine python
+echo "[4] Probando CLI especializada con Rust obligatorio..."
+python3 main.py 127.0.0.1 -p 20-25 --engine auto --threads 2
 
 echo ""
-echo "[5] Probando CLI con motor Rust..."
-python3 main.py localhost -p 20-25 --engine rust --threads 2
+echo "[5] Verificando rechazo explícito del escáner Python..."
+if python3 main.py 127.0.0.1 -p 20 --engine python \
+  >/tmp/cicadaport_python_scan_rejection.txt 2>&1; then
+    echo "El flujo público permitió seleccionar el escáner Python."
+    exit 1
+fi
+grep -F "requiere Rust" /tmp/cicadaport_python_scan_rejection.txt
+
+echo ""
+echo "[6] Verificando rechazo explícito de banners Python..."
+if python3 main.py 127.0.0.1 -p 20 \
+  --engine rust \
+  --banner-grab \
+  --banner-engine python \
+  >/tmp/cicadaport_python_banner_rejection.txt 2>&1; then
+    echo "El flujo público permitió seleccionar banners Python."
+    exit 1
+fi
+grep -F "requiere Go" /tmp/cicadaport_python_banner_rejection.txt
 
 echo ""
 echo "======================================"

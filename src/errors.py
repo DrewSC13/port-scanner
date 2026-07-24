@@ -3,3 +3,7 @@
 
 class ScanCancelledError(RuntimeError):
     """Indica que el usuario canceló una operación de escaneo."""
+
+
+class SpecializedFlowError(RuntimeError):
+    """Indica que el flujo obligatorio Rust/Go no puede ejecutarse."""

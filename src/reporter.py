@@ -45,6 +45,9 @@ class ReportGenerator:
         results: List[ScanResult],
         target: str,
         output_file: Optional[str] = None,
+        *,
+        scan_engine: Optional[str] = None,
+        banner_engine: Optional[str] = None,
     ) -> str:
         """
         Genera un reporte en formato texto
@@ -64,9 +67,12 @@ class ReportGenerator:
             f"Objetivo: {target}",
             f"Fecha: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             f"Puertos abiertos: {len(open_results)}",
-            "=" * 60,
-            "",
         ]
+        if scan_engine:
+            report.append(f"Motor de escaneo: {scan_engine}")
+        if banner_engine:
+            report.append(f"Motor de banners: {banner_engine}")
+        report.extend(["=" * 60, ""])
 
         if not open_results:
             report.append("No se encontraron puertos abiertos.")
@@ -97,6 +103,9 @@ class ReportGenerator:
         results: List[ScanResult],
         target: str,
         output_file: Optional[str] = None,
+        *,
+        scan_engine: Optional[str] = None,
+        banner_engine: Optional[str] = None,
     ) -> str:
         """
         Genera un reporte en formato JSON
@@ -114,6 +123,8 @@ class ReportGenerator:
             "contract_version": SCAN_CONTRACT_VERSION,
             "scan_target": target,
             "scan_date": datetime.datetime.now().isoformat(),
+            "scan_engine": scan_engine,
+            "banner_engine": banner_engine,
             "open_ports_count": len(open_results),
             "open_ports": [
                 result.to_contract_dict() for result in open_results
@@ -133,6 +144,9 @@ class ReportGenerator:
         results: List[ScanResult],
         target: str,
         output_file: Optional[str] = None,
+        *,
+        scan_engine: Optional[str] = None,
+        banner_engine: Optional[str] = None,
     ) -> str:
         """
         Genera un reporte en formato CSV
@@ -166,6 +180,8 @@ class ReportGenerator:
                 "Address Family",
                 "Technique",
                 "Contract Version",
+                "Scan Engine",
+                "Banner Engine",
             ]
         )
 
@@ -189,6 +205,8 @@ class ReportGenerator:
                     ),
                     result.technique.value,
                     result.contract_version,
+                    scan_engine or "",
+                    banner_engine or "",
                 ]
             )
 
@@ -205,6 +223,9 @@ class ReportGenerator:
         results: List[ScanResult],
         target: str,
         output_file: Optional[str] = None,
+        *,
+        scan_engine: Optional[str] = None,
+        banner_engine: Optional[str] = None,
     ) -> str:
         """
         Genera un reporte en formato HTML
@@ -219,6 +240,8 @@ class ReportGenerator:
         """
         open_results = ReportGenerator._get_reportable_results(results)
         safe_target = html.escape(str(target), quote=True)
+        safe_scan_engine = html.escape(str(scan_engine or ""), quote=True)
+        safe_banner_engine = html.escape(str(banner_engine or ""), quote=True)
         result_blocks = []
 
         for result in open_results:
@@ -271,6 +294,8 @@ class ReportGenerator:
                 <p><strong>Objetivo:</strong> {safe_target}</p>
                 <p><strong>Fecha:</strong> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
                 <p><strong>Puertos abiertos:</strong> {len(open_results)}</p>
+                <p><strong>Motor de escaneo:</strong> {safe_scan_engine}</p>
+                <p><strong>Motor de banners:</strong> {safe_banner_engine}</p>
             </div>
             
             <div class="results">

@@ -134,7 +134,7 @@ class TestCanonicalScanContract(unittest.TestCase):
                 }
             )
 
-    def test_banner_phase_dispatch_is_independent_from_scan_engine(self):
+    def test_public_banner_dispatch_requires_go(self):
         cli = PortScannerCLI()
         results = [
             ScanResult(
@@ -144,45 +144,47 @@ class TestCanonicalScanContract(unittest.TestCase):
             )
         ]
 
-        for banner_engine, method_name in (
-            ("python", "_apply_python_banners"),
-            ("go", "_apply_go_banners"),
+        with (
+            patch.object(
+                cli,
+                "_apply_python_banners",
+                return_value=results,
+            ) as python_banners,
+            patch.object(
+                cli,
+                "_apply_go_banners",
+                return_value=results,
+            ) as go_banners,
         ):
-            with self.subTest(banner_engine=banner_engine):
-                with (
-                    patch.object(
-                        cli,
-                        "_apply_python_banners",
-                        return_value=results,
-                    ) as python_banners,
-                    patch.object(
-                        cli,
-                        "_apply_go_banners",
-                        return_value=results,
-                    ) as go_banners,
-                ):
-                    returned = cli._apply_requested_banners(
-                        host_ip="127.0.0.1",
-                        results=results,
-                        banner_engine=banner_engine,
-                        timeout=0.1,
-                    )
+            returned = cli._apply_requested_banners(
+                host_ip="127.0.0.1",
+                results=results,
+                banner_engine="go",
+                timeout=0.1,
+            )
 
-                self.assertIs(returned, results)
-                expected = (
-                    python_banners
-                    if method_name == "_apply_python_banners"
-                    else go_banners
-                )
-                unexpected = (
-                    go_banners
-                    if method_name == "_apply_python_banners"
-                    else python_banners
-                )
-                expected.assert_called_once()
-                unexpected.assert_not_called()
+            self.assertIs(returned, results)
+            go_banners.assert_called_once()
+            python_banners.assert_not_called()
 
-    def test_banner_flag_runs_after_python_and_rust_scans(self):
+            with self.assertRaisesRegex(RuntimeError, "requiere.*Go"):
+                cli._apply_requested_banners(
+                    host_ip="127.0.0.1",
+                    results=results,
+                    banner_engine="python",
+                    timeout=0.1,
+                )
+
+    @patch("src.orchestrator.GoBannerBridge")
+    @patch("src.orchestrator.RustScannerBridge")
+    def test_banner_flag_runs_after_mandatory_rust_scan(
+        self,
+        rust_bridge_class,
+        go_bridge_class,
+    ):
+        rust_bridge_class.return_value.is_available.return_value = True
+        go_bridge_class.return_value.is_available.return_value = True
+
         def complete_scan(scanner, _host_ip, _args):
             scanner.start_external_scan()
             return scanner.finish_external_scan(
@@ -195,73 +197,74 @@ class TestCanonicalScanContract(unittest.TestCase):
                 ]
             )
 
-        for scan_engine, scan_method in (
-            ("python", "_scan_with_python"),
-            ("rust", "_scan_with_rust"),
+        cli = PortScannerCLI()
+        args = SimpleNamespace(
+            host="127.0.0.1",
+            common_ports=False,
+            ports="45001",
+            threads=1,
+            timeout=0.1,
+            engine="rust",
+            verbose=False,
+            banner_grab=True,
+            banner_engine="go",
+            output="ignored.txt",
+            report_dir="reports",
+            format="text",
+        )
+
+        with (
+            patch.object(
+                cli.parser,
+                "parse_args",
+                return_value=args,
+            ),
+            patch.object(
+                cli,
+                "validate_arguments",
+                return_value=True,
+            ),
+            patch(
+                "src.cli.NetworkUtils.resolve_host",
+                return_value="127.0.0.1",
+            ),
+            patch.object(
+                cli,
+                "_scan_with_rust",
+                side_effect=complete_scan,
+            ) as scan_with_rust,
+            patch.object(
+                cli,
+                "_scan_with_python",
+            ) as scan_with_python,
+            patch.object(
+                cli,
+                "_apply_requested_banners",
+            ) as apply_banners,
+            patch.object(
+                cli,
+                "_resolve_output_path",
+                return_value=Path("ignored.txt"),
+            ),
+            patch.object(cli, "_generate_report"),
+            patch("builtins.print"),
         ):
-            with self.subTest(scan_engine=scan_engine):
-                cli = PortScannerCLI()
-                args = SimpleNamespace(
-                    host="127.0.0.1",
-                    common_ports=False,
-                    ports="45001",
-                    threads=1,
-                    timeout=0.1,
-                    engine=scan_engine,
-                    verbose=False,
-                    banner_grab=True,
-                    banner_engine="python",
-                    output="ignored.txt",
-                    report_dir="reports",
-                    format="text",
-                )
+            cli.run()
 
-                with (
-                    patch.object(
-                        cli.parser,
-                        "parse_args",
-                        return_value=args,
-                    ),
-                    patch.object(
-                        cli,
-                        "validate_arguments",
-                        return_value=True,
-                    ),
-                    patch(
-                        "src.cli.NetworkUtils.resolve_host",
-                        return_value="127.0.0.1",
-                    ),
-                    patch.object(
-                        cli,
-                        scan_method,
-                        side_effect=complete_scan,
-                    ),
-                    patch.object(
-                        cli,
-                        "_apply_requested_banners",
-                    ) as apply_banners,
-                    patch.object(
-                        cli,
-                        "_resolve_output_path",
-                        return_value=Path("ignored.txt"),
-                    ),
-                    patch.object(cli, "_generate_report"),
-                    patch("builtins.print"),
-                ):
-                    cli.run()
-
-                apply_banners.assert_called_once()
-                self.assertEqual(
-                    apply_banners.call_args.kwargs["banner_engine"],
-                    "python",
-                )
-                self.assertEqual(
-                    [
-                        result.port
-                        for result in apply_banners.call_args.kwargs["results"]
-                    ],
-                    [45001],
-                )
+        scan_with_rust.assert_called_once()
+        scan_with_python.assert_not_called()
+        apply_banners.assert_called_once()
+        self.assertEqual(
+            apply_banners.call_args.kwargs["banner_engine"],
+            "go",
+        )
+        self.assertEqual(
+            [
+                result.port
+                for result in apply_banners.call_args.kwargs["results"]
+            ],
+            [45001],
+        )
 
 
 class TestCliReportOutput(unittest.TestCase):
@@ -400,10 +403,10 @@ class TestCliReportOutput(unittest.TestCase):
                 ports="45001-45003",
                 threads=1,
                 timeout=0.1,
-                engine="python",
+                engine="rust",
                 verbose=False,
                 banner_grab=False,
-                banner_engine="python",
+                banner_engine="go",
                 output=None,
                 report_dir=str(report_dir),
                 format="json",
@@ -418,8 +421,12 @@ class TestCliReportOutput(unittest.TestCase):
                 ),
                 patch.object(
                     cli,
-                    "_scan_with_python",
+                    "_scan_with_rust",
                     side_effect=complete_scan,
+                ),
+                patch(
+                    "src.orchestrator.RustScannerBridge.is_available",
+                    return_value=True,
                 ),
                 patch("builtins.print") as print_mock,
             ):
@@ -447,6 +454,8 @@ class TestCliReportOutput(unittest.TestCase):
                 [item["port"] for item in report["open_ports"]],
                 [45001, 45002],
             )
+            self.assertEqual(report["scan_engine"], "rust")
+            self.assertEqual(report["banner_engine"], "no usado")
 
 
 class TestReportableResultFiltering(unittest.TestCase):
@@ -527,6 +536,50 @@ class TestReportableResultFiltering(unittest.TestCase):
         self.assertIn("Puerto 43001/TCP", report)
         self.assertNotIn("43002", report)
         self.assertNotIn("43003", report)
+
+    def test_all_report_formats_include_effective_specialized_engines(self):
+        engine_metadata = {
+            "scan_engine": "rust",
+            "banner_engine": "go",
+        }
+
+        text_report = ReportGenerator.generate_text_report(
+            self.results,
+            "127.0.0.1",
+            **engine_metadata,
+        )
+        json_report = json.loads(
+            ReportGenerator.generate_json_report(
+                self.results,
+                "127.0.0.1",
+                **engine_metadata,
+            )
+        )
+        csv_rows = list(
+            csv.DictReader(
+                io.StringIO(
+                    ReportGenerator.generate_csv_report(
+                        self.results,
+                        "127.0.0.1",
+                        **engine_metadata,
+                    )
+                )
+            )
+        )
+        html_report = ReportGenerator.generate_html_report(
+            self.results,
+            "127.0.0.1",
+            **engine_metadata,
+        )
+
+        self.assertIn("Motor de escaneo: rust", text_report)
+        self.assertIn("Motor de banners: go", text_report)
+        self.assertEqual(json_report["scan_engine"], "rust")
+        self.assertEqual(json_report["banner_engine"], "go")
+        self.assertEqual(csv_rows[0]["Scan Engine"], "rust")
+        self.assertEqual(csv_rows[0]["Banner Engine"], "go")
+        self.assertIn("Motor de escaneo:</strong> rust", html_report)
+        self.assertIn("Motor de banners:</strong> go", html_report)
 
     def test_html_report_escapes_hostile_target_service_and_banner(self):
         hostile_result = ScanResult(

@@ -71,8 +71,13 @@ class TestScanOrchestrator(unittest.TestCase):
         )
         self.assertEqual([result.port for result in reportable], [45001])
 
-    def test_session_emits_events_and_persists_canonical_report(self):
+    @patch("src.orchestrator.RustScannerBridge")
+    def test_session_emits_events_and_persists_canonical_report(
+        self,
+        rust_bridge_class,
+    ):
         events = []
+        rust_bridge_class.return_value.is_available.return_value = True
 
         def fake_scan(scanner, _host_ip, _request):
             scanner.start_external_scan()
@@ -95,12 +100,12 @@ class TestScanOrchestrator(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             orchestrator = ScanOrchestrator(
                 event_callback=events.append,
-                scan_python=fake_scan,
+                scan_rust=fake_scan,
             )
             request = ScanRequest(
                 host="localhost",
                 ports="45001-45002",
-                engine="python",
+                engine="rust",
                 report_dir=temp_dir,
                 profile="custom",
             )

@@ -21,13 +21,16 @@ from src.contracts import (
     ScanEvidence,
     ScanTechnique,
 )
-from src.errors import ScanCancelledError
+from src.errors import ScanCancelledError, SpecializedFlowError
 from src.events import ScanEvent, ScanEventType
 from src.network import NetworkUtils
 from src.reporter import ReportGenerator
 from src.scanner import PortScanner, ScanResult
 
 EventCallback = Callable[[ScanEvent], None]
+MANDATORY_SCAN_ENGINE = "rust"
+MANDATORY_BANNER_ENGINE = "go"
+DISABLED_BANNER_ENGINE = "no usado"
 
 
 @dataclass(frozen=True)
@@ -39,9 +42,9 @@ class ScanRequest:
     common_ports: bool = False
     threads: int = config.DEFAULT_THREADS
     timeout: float = config.DEFAULT_TIMEOUT
-    engine: str = "python"
+    engine: str = MANDATORY_SCAN_ENGINE
     banner_grab: bool = False
-    banner_engine: str = "python"
+    banner_engine: str = MANDATORY_BANNER_ENGINE
     output: Optional[str] = None
     report_dir: str = config.DEFAULT_REPORT_DIR
     report_format: str = "text"
@@ -220,15 +223,56 @@ class ScanOrchestrator:
 
     @staticmethod
     def _resolve_scan_engine(requested: str) -> str:
-        if requested != "auto":
-            return requested
-        return "rust" if RustScannerBridge().is_available() else "python"
+        if requested == "python":
+            raise SpecializedFlowError(
+                "El flujo especializado requiere Rust para el escaneo TCP. "
+                "--engine python se conserva temporalmente en la interfaz, "
+                "pero la implementación Python ya no puede seleccionarse "
+                "desde el flujo público."
+            )
+        if requested not in {"auto", MANDATORY_SCAN_ENGINE}:
+            raise SpecializedFlowError(
+                f"Motor TCP no compatible con el flujo especializado: {requested!r}."
+            )
+        return MANDATORY_SCAN_ENGINE
 
     @staticmethod
     def _resolve_banner_engine(requested: str) -> str:
-        if requested != "auto":
-            return requested
-        return "go" if GoBannerBridge().is_available() else "python"
+        if requested == "python":
+            raise SpecializedFlowError(
+                "El flujo especializado requiere Go para la captura de banners. "
+                "--banner-engine python se conserva temporalmente en la interfaz, "
+                "pero la implementación Python ya no puede seleccionarse "
+                "desde el flujo público."
+            )
+        if requested not in {"auto", MANDATORY_BANNER_ENGINE}:
+            raise SpecializedFlowError(
+                "Motor de banners no compatible con el flujo especializado: "
+                f"{requested!r}."
+            )
+        return MANDATORY_BANNER_ENGINE
+
+    @staticmethod
+    def _require_specialized_binaries(*, banner_grab: bool) -> None:
+        """Comprueba todos los motores requeridos antes de iniciar el escaneo."""
+        missing = []
+
+        rust_bridge = RustScannerBridge()
+        if not rust_bridge.is_available():
+            missing.append(f"Rust ({rust_bridge.binary_path})")
+
+        if banner_grab:
+            go_bridge = GoBannerBridge()
+            if not go_bridge.is_available():
+                missing.append(f"Go ({go_bridge.binary_path})")
+
+        if missing:
+            unavailable = ", ".join(missing)
+            raise SpecializedFlowError(
+                "El flujo especializado no puede iniciarse; faltan motores "
+                f"obligatorios: {unavailable}. Ejecuta ./scripts/build_all.sh. "
+                "No se utilizará fallback Python."
+            )
 
     def scan_with_python(
         self,
@@ -388,9 +432,11 @@ class ScanOrchestrator:
         timeout: float,
     ) -> List[ScanResult]:
         """Ejecuta una fase explícita de banners sobre puertos abiertos."""
-        if banner_engine == "go":
-            return self._apply_go_banners(host_ip, results, timeout)
-        return self._apply_python_banners(host_ip, results, timeout)
+        if banner_engine != MANDATORY_BANNER_ENGINE:
+            raise SpecializedFlowError(
+                "La fase pública de banners requiere obligatoriamente el motor Go."
+            )
+        return self._apply_go_banners(host_ip, results, timeout)
 
     @staticmethod
     def _safe_filename_component(value: str) -> str:
@@ -448,6 +494,8 @@ class ScanOrchestrator:
         target: str,
         output_file: str,
         report_format: str,
+        scan_engine: Optional[str] = None,
+        banner_engine: Optional[str] = None,
     ) -> str:
         """Genera el formato solicitado conservando el filtrado canónico."""
         generators = {
@@ -456,7 +504,13 @@ class ScanOrchestrator:
             "csv": ReportGenerator.generate_csv_report,
             "html": ReportGenerator.generate_html_report,
         }
-        return generators[report_format](results, target, output_file)
+        return generators[report_format](
+            results,
+            target,
+            output_file,
+            scan_engine=scan_engine,
+            banner_engine=banner_engine,
+        )
 
     def run(self, request: ScanRequest) -> ScanOutcome:
         """Ejecuta una sesión completa y emite eventos independientes de UI."""
@@ -466,17 +520,18 @@ class ScanOrchestrator:
         if not NetworkUtils.is_valid_host(request.host):
             raise ValueError(f"Host '{request.host}' no válido.")
 
-        host_ip = NetworkUtils.resolve_host(request.host)
-        if not host_ip:
-            raise ValueError(f"No se pudo resolver el host '{request.host}'.")
-
         ports = self._get_ports_to_scan(request)
         scan_engine = self._resolve_scan_engine(request.engine)
         banner_engine = (
             self._resolve_banner_engine(request.banner_engine)
             if request.banner_grab
-            else "no usado"
+            else DISABLED_BANNER_ENGINE
         )
+        self._require_specialized_binaries(banner_grab=request.banner_grab)
+
+        host_ip = NetworkUtils.resolve_host(request.host)
+        if not host_ip:
+            raise ValueError(f"No se pudo resolver el host '{request.host}'.")
 
         self._emit(
             ScanEventType.STATUS,
@@ -522,10 +577,7 @@ class ScanOrchestrator:
         scanner.progress_callback = progress_callback
 
         try:
-            if scan_engine == "rust":
-                scan_operation = self._scan_rust_hook or self.scan_with_rust
-            else:
-                scan_operation = self._scan_python_hook or self.scan_with_python
+            scan_operation = self._scan_rust_hook or self.scan_with_rust
 
             scan_operation(scanner, host_ip, request)
             self._attach_target_identity(
@@ -568,6 +620,8 @@ class ScanOrchestrator:
                 target=request.host,
                 output_file=str(output_path),
                 report_format=request.report_format,
+                scan_engine=scan_engine,
+                banner_engine=banner_engine,
             )
 
             outcome = ScanOutcome(

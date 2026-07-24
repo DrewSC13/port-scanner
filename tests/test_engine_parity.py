@@ -1,6 +1,8 @@
+import json
 import os
 from pathlib import Path
 import socket
+import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
@@ -9,6 +11,7 @@ from unittest.mock import patch
 from src.banner import BannerGrabber
 from src.bridge_go import GoBannerBridge
 from src.cli import PortScannerCLI
+from src.orchestrator import ScanOrchestrator, ScanRequest
 from src.scanner import PortScanner
 
 
@@ -295,6 +298,59 @@ class TestPythonGoBannerParity(unittest.TestCase):
         self.assertEqual(go_results[0]["status"], "captured")
         self.assertEqual(go_results[0]["source"], "go")
         self.assertEqual(go_results[0]["banner"], python_banner)
+
+
+class TestSpecializedNativeFlowIntegration(unittest.TestCase):
+    def setUp(self):
+        missing = []
+        if not RUST_BINARY.is_file():
+            missing.append(str(RUST_BINARY))
+        if not GO_BINARY.is_file():
+            missing.append(str(GO_BINARY))
+        if not missing:
+            return
+
+        message = "Binarios nativos no disponibles: " + ", ".join(missing)
+        if REQUIRE_RUST_INTEGRATION or REQUIRE_GO_INTEGRATION:
+            self.fail(message)
+        self.skipTest(message)
+
+    def test_python_orchestrates_rust_scan_then_go_banner_locally(self):
+        banner = b"CICADAPORT-SPECIALIZED/1.0\r\n"
+
+        with (
+            LocalSeparatedScanBannerServer(banner) as server,
+            tempfile.TemporaryDirectory() as temp_dir,
+        ):
+            outcome = ScanOrchestrator().run(
+                ScanRequest(
+                    host="127.0.0.1",
+                    ports=str(server.port),
+                    threads=1,
+                    timeout=0.5,
+                    engine="auto",
+                    banner_grab=True,
+                    banner_engine="auto",
+                    report_dir=temp_dir,
+                    report_format="json",
+                    profile="custom",
+                )
+            )
+            report_existed = outcome.output_path.is_file()
+            report = json.loads(outcome.persisted_report)
+
+        self.assertEqual(server.scan_payload, b"")
+        self.assertEqual(outcome.scan_engine, "rust")
+        self.assertEqual(outcome.banner_engine, "go")
+        self.assertEqual(len(outcome.results), 1)
+        self.assertTrue(outcome.results[0].is_open)
+        self.assertEqual(
+            outcome.results[0].banner,
+            "CICADAPORT-SPECIALIZED/1.0",
+        )
+        self.assertEqual(report["scan_engine"], "rust")
+        self.assertEqual(report["banner_engine"], "go")
+        self.assertTrue(report_existed)
 
 
 if __name__ == "__main__":

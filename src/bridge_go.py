@@ -1,6 +1,7 @@
 """Puente contractual entre Python y el motor de banners Go."""
 
 import json
+import os
 import subprocess
 from pathlib import Path
 import threading
@@ -24,7 +25,10 @@ class GoBannerBridge:
 
     def is_available(self) -> bool:
         """Verifica si el binario Go existe y se puede ejecutar."""
-        return self.binary_path.exists() and self.binary_path.is_file()
+        return self.binary_path.is_file() and os.access(
+            self.binary_path,
+            os.X_OK,
+        )
 
     @staticmethod
     def _terminate_process(process: subprocess.Popen[str]) -> None:
@@ -65,7 +69,8 @@ class GoBannerBridge:
         if not self.is_available():
             raise FileNotFoundError(
                 f"Binario Go no encontrado: {self.binary_path}. "
-                "Compila go-banner antes de usar --banner-engine go."
+                "Ejecuta ./scripts/build_all.sh; el flujo especializado "
+                "no utilizará fallback Python."
             )
 
         request = NativeBannerRequest.from_seconds(
