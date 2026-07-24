@@ -15,13 +15,10 @@ pytest -v
 
 echo ""
 echo "[2] Probando motor Rust directamente..."
-rust_request='{"contract_version":1,"record_type":"scan_request","ports":[20,21,22,23,24,25]}'
+rust_request='{"contract_version":1,"record_type":"scan_request","target":"127.0.0.1","ports":[20,21,22,23,24,25],"timeout_ms":1000,"workers":2}'
 printf '%s\n' "$rust_request" |
   ./rust-core/target/release/rust-core \
-    --host 127.0.0.1 \
-    --ports-stdin \
-    --timeout 1 \
-    --workers 2 \
+    --request-stdin \
     >/tmp/cicadaport_rust_test.jsonl
 
 python3 - /tmp/cicadaport_rust_test.jsonl <<'PY'
@@ -49,16 +46,35 @@ fi
 
 echo ""
 echo "[3] Probando motor Go directamente..."
-./go-banner/go-banner \
-  --host 127.0.0.1 \
-  --ports 20,21,22,80,8000 \
-  --timeout 1 \
-  >/tmp/cicadaport_go_test.json
+go_request='{"contract_version":1,"record_type":"banner_request","target":"127.0.0.1","ports":[20,21,22,80,8000],"timeout_ms":1000}'
+printf '%s\n' "$go_request" |
+  ./go-banner/go-banner \
+    --request-stdin \
+    >/tmp/cicadaport_go_test.jsonl
+
+python3 - /tmp/cicadaport_go_test.jsonl <<'PY'
+import json
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+records = [
+    json.loads(line)
+    for line in path.read_text(encoding="utf-8").splitlines()
+]
+assert len(records) == 5
+assert {record["port"] for record in records} == {20, 21, 22, 80, 8000}
+assert all(record["contract_version"] == 1 for record in records)
+assert all(record["record_type"] == "banner_result" for record in records)
+assert all(record["target"] == "127.0.0.1" for record in records)
+assert all(record["source"] == "go" for record in records)
+print("JSONL Go validado: 5 registros contractuales")
+PY
 
 if command -v jq >/dev/null 2>&1; then
-    jq . /tmp/cicadaport_go_test.json
+    jq -c . /tmp/cicadaport_go_test.jsonl
 else
-    cat /tmp/cicadaport_go_test.json
+    cat /tmp/cicadaport_go_test.jsonl
 fi
 
 echo ""

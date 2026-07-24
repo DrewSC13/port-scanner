@@ -289,6 +289,11 @@ class TestPythonGoBannerParity(unittest.TestCase):
             python_banner,
             "=2+5  <script>alert(1)</script>",
         )
+        self.assertEqual(go_results[0]["contract_version"], 1)
+        self.assertEqual(go_results[0]["record_type"], "banner_result")
+        self.assertEqual(go_results[0]["target"], "127.0.0.1")
+        self.assertEqual(go_results[0]["status"], "captured")
+        self.assertEqual(go_results[0]["source"], "go")
         self.assertEqual(go_results[0]["banner"], python_banner)
 
 

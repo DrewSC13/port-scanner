@@ -6,6 +6,63 @@ import (
 	"unicode/utf8"
 )
 
+func TestParseVersionedBannerRequest(t *testing.T) {
+	t.Parallel()
+
+	request, err := parseBannerRequest(strings.NewReader(
+		`{"contract_version":1,"record_type":"banner_request","target":"127.0.0.1","ports":[443,80,443],"timeout_ms":250}`,
+	))
+	if err != nil {
+		t.Fatalf("parseBannerRequest returned an error: %v", err)
+	}
+
+	if request.Target != "127.0.0.1" {
+		t.Fatalf("target = %q; want 127.0.0.1", request.Target)
+	}
+	if len(request.Ports) != 2 || request.Ports[0] != 80 || request.Ports[1] != 443 {
+		t.Fatalf("ports = %v; want [80 443]", request.Ports)
+	}
+	if request.TimeoutMS != 250 {
+		t.Fatalf("timeout_ms = %d; want 250", request.TimeoutMS)
+	}
+}
+
+func TestRejectsIncompleteOrExtendedBannerRequest(t *testing.T) {
+	t.Parallel()
+
+	cases := []string{
+		`{"contract_version":1,"record_type":"banner_request","target":"127.0.0.1","ports":[80]}`,
+		`{"contract_version":1,"record_type":"banner_request","target":"127.0.0.1","ports":[80],"timeout_ms":250,"unexpected":true}`,
+		`{"contract_version":2,"record_type":"banner_request","target":"127.0.0.1","ports":[80],"timeout_ms":250}`,
+	}
+
+	for _, rawRequest := range cases {
+		if _, err := parseBannerRequest(strings.NewReader(rawRequest)); err == nil {
+			t.Fatalf("expected request to be rejected: %s", rawRequest)
+		}
+	}
+}
+
+func TestNewBannerResultCarriesStableContractIdentity(t *testing.T) {
+	t.Parallel()
+
+	result := newBannerResult("127.0.0.1", 8080)
+
+	if result.ContractVersion != contractVersion {
+		t.Fatalf(
+			"contract_version = %d; want %d",
+			result.ContractVersion,
+			contractVersion,
+		)
+	}
+	if result.RecordType != "banner_result" || result.Source != "go" {
+		t.Fatalf("unexpected result identity: %#v", result)
+	}
+	if result.Status != "empty" || result.Banner != nil || result.Error != nil {
+		t.Fatalf("unexpected initial result state: %#v", result)
+	}
+}
+
 func TestBuildTargetAddress(t *testing.T) {
 	t.Parallel()
 

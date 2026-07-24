@@ -105,7 +105,7 @@ def contract_record(port, *, state=PortState.CLOSED):
 
 
 class TestRustJsonlBridge(unittest.TestCase):
-    def test_ports_travel_in_structured_stdin_instead_of_argv(self):
+    def test_complete_request_travels_in_structured_stdin_instead_of_argv(self):
         records = [contract_record(80), contract_record(81)]
         with tempfile.TemporaryDirectory() as temp_dir:
             capture_path = Path(temp_dir) / "request.json"
@@ -123,14 +123,17 @@ class TestRustJsonlBridge(unittest.TestCase):
             capture = json.loads(capture_path.read_text(encoding="utf-8"))
 
         self.assertEqual([item["port"] for item in returned], [80, 81])
-        self.assertIn("--ports-stdin", capture["argv"])
+        self.assertEqual(capture["argv"], ["--request-stdin"])
         self.assertNotIn("--ports", capture["argv"])
         self.assertEqual(
             capture["request"],
             {
                 "contract_version": 1,
                 "record_type": "scan_request",
+                "target": "127.0.0.1",
                 "ports": [80, 81],
+                "timeout_ms": 200,
+                "workers": 2,
             },
         )
 
@@ -212,6 +215,32 @@ class TestRustJsonlBridge(unittest.TestCase):
                     "127.0.0.1",
                     [80],
                 )
+
+    def test_incomplete_extended_and_foreign_target_records_are_rejected(self):
+        incomplete = contract_record(80)
+        incomplete.pop("technique")
+        extended = contract_record(80)
+        extended["unexpected"] = True
+        foreign_target = contract_record(80)
+        foreign_target["target"] = "127.0.0.2"
+        incoherent = contract_record(80, state=PortState.OPEN)
+        incoherent["reason"] = ReasonCode.TIMEOUT.value
+        incoherent["evidence"]["reason"] = ReasonCode.TIMEOUT.value
+
+        cases = (
+            (incomplete, "incompleto"),
+            (extended, "campos no admitidos"),
+            (foreign_target, "target no coincide"),
+            (incoherent, "reason no es coherente"),
+        )
+        for record, expected_message in cases:
+            with self.subTest(expected_message=expected_message):
+                with ScriptedRustEngine(records=[record]) as engine:
+                    with self.assertRaisesRegex(RuntimeError, expected_message):
+                        RustScannerBridge(str(engine.path)).scan(
+                            "127.0.0.1",
+                            [80],
+                        )
 
     def test_cancellation_terminates_and_reaps_the_native_process(self):
         cancel_event = threading.Event()

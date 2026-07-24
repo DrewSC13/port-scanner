@@ -5,12 +5,68 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 import ipaddress
-from typing import Any, Dict, Optional, Type, TypeVar
+import math
+from typing import Any, Dict, Iterable, Optional, Tuple, Type, TypeVar
 
 
 SCAN_CONTRACT_VERSION = 1
+BANNER_CONTRACT_VERSION = 1
 
 EnumType = TypeVar("EnumType", bound=Enum)
+
+
+def _normalize_contract_ports(
+    ports: Iterable[int],
+    *,
+    field_name: str = "ports",
+) -> Tuple[int, ...]:
+    """Normaliza una colección de puertos sin aceptar coerciones ambiguas."""
+    if isinstance(ports, (str, bytes)) or not isinstance(ports, Iterable):
+        raise ValueError(f"{field_name} debe ser una colección de enteros.")
+
+    normalized = set()
+    for port in ports:
+        if isinstance(port, bool) or not isinstance(port, int):
+            raise ValueError(f"{field_name} debe contener únicamente enteros.")
+        if not 1 <= port <= 65535:
+            raise ValueError(
+                f"{field_name} debe contener puertos entre 1 y 65535."
+            )
+        normalized.add(port)
+
+    if not normalized:
+        raise ValueError(f"{field_name} requiere al menos un puerto.")
+    return tuple(sorted(normalized))
+
+
+def _seconds_to_milliseconds(value: float, *, field_name: str) -> int:
+    """Convierte segundos finitos y positivos a milisegundos contractuales."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} debe ser un número.")
+    numeric_value = float(value)
+    if not math.isfinite(numeric_value) or numeric_value <= 0:
+        raise ValueError(f"{field_name} debe ser finito y mayor a 0.")
+    return max(1, round(numeric_value * 1000))
+
+
+def _require_exact_fields(
+    payload: Dict[str, Any],
+    *,
+    record_name: str,
+    fields: set[str],
+) -> None:
+    """Rechaza contratos incompletos y extensiones no negociadas."""
+    if not isinstance(payload, dict):
+        raise ValueError(f"{record_name} debe ser un objeto.")
+    received = set(payload)
+    missing = fields - received
+    unexpected = received - fields
+    if missing:
+        names = ", ".join(sorted(missing))
+        raise ValueError(f"{record_name} omite campo(s): {names}.")
+    if unexpected:
+        names = ", ".join(sorted(unexpected))
+        raise ValueError(f"{record_name} contiene campo(s) no admitidos: {names}.")
 
 
 def _coerce_enum(
@@ -116,6 +172,301 @@ class ReasonCode(str, Enum):
     INTERNAL_ERROR = "internal_error"
     NOT_SCANNED = "not_scanned"
     UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class NativeScanRequest:
+    """Solicitud completa y versionada que Python entrega al motor Rust."""
+
+    target: str
+    ports: Tuple[int, ...] | Iterable[int]
+    timeout_ms: int
+    workers: int
+    contract_version: int = SCAN_CONTRACT_VERSION
+
+    _FIELDS = {
+        "contract_version",
+        "record_type",
+        "target",
+        "ports",
+        "timeout_ms",
+        "workers",
+    }
+
+    def __post_init__(self) -> None:
+        if self.contract_version != SCAN_CONTRACT_VERSION:
+            raise ValueError(
+                "contract_version no compatible: "
+                f"{self.contract_version!r}; esperado {SCAN_CONTRACT_VERSION}."
+            )
+        if not isinstance(self.target, str) or not self.target.strip():
+            raise ValueError("target debe ser una cadena no vacía.")
+        if "\x00" in self.target:
+            raise ValueError("target contiene un carácter nulo.")
+        object.__setattr__(self, "target", self.target.strip())
+
+        normalized_ports = _normalize_contract_ports(self.ports)
+        object.__setattr__(self, "ports", normalized_ports)
+
+        if isinstance(self.timeout_ms, bool) or not isinstance(self.timeout_ms, int):
+            raise ValueError("timeout_ms debe ser un entero.")
+        if self.timeout_ms <= 0:
+            raise ValueError("timeout_ms debe ser mayor a 0.")
+
+        if isinstance(self.workers, bool) or not isinstance(self.workers, int):
+            raise ValueError("workers debe ser un entero.")
+        if self.workers <= 0:
+            raise ValueError("workers debe ser mayor a 0.")
+        object.__setattr__(
+            self,
+            "workers",
+            min(self.workers, 512, len(normalized_ports)),
+        )
+
+    @classmethod
+    def from_seconds(
+        cls,
+        *,
+        target: str,
+        ports: Iterable[int],
+        timeout: float,
+        workers: int,
+    ) -> "NativeScanRequest":
+        return cls(
+            target=target,
+            ports=tuple(ports),
+            timeout_ms=_seconds_to_milliseconds(
+                timeout,
+                field_name="timeout",
+            ),
+            workers=workers,
+        )
+
+    def to_contract_dict(self) -> Dict[str, Any]:
+        return {
+            "contract_version": self.contract_version,
+            "record_type": "scan_request",
+            "target": self.target,
+            "ports": list(self.ports),
+            "timeout_ms": self.timeout_ms,
+            "workers": self.workers,
+        }
+
+    @classmethod
+    def from_contract_dict(cls, payload: Dict[str, Any]) -> "NativeScanRequest":
+        _require_exact_fields(
+            payload,
+            record_name="scan_request",
+            fields=cls._FIELDS,
+        )
+        if payload["record_type"] != "scan_request":
+            raise ValueError("record_type debe ser 'scan_request'.")
+        return cls(
+            target=payload["target"],
+            ports=payload["ports"],
+            timeout_ms=payload["timeout_ms"],
+            workers=payload["workers"],
+            contract_version=payload["contract_version"],
+        )
+
+
+class BannerStatus(str, Enum):
+    """Resultado explícito de una tentativa de enumeración de servicio."""
+
+    CAPTURED = "captured"
+    EMPTY = "empty"
+    ERROR = "error"
+
+
+@dataclass(frozen=True)
+class NativeBannerRequest:
+    """Solicitud completa y versionada que Python entrega al motor Go."""
+
+    target: str
+    ports: Tuple[int, ...] | Iterable[int]
+    timeout_ms: int
+    contract_version: int = BANNER_CONTRACT_VERSION
+
+    _FIELDS = {
+        "contract_version",
+        "record_type",
+        "target",
+        "ports",
+        "timeout_ms",
+    }
+
+    def __post_init__(self) -> None:
+        if self.contract_version != BANNER_CONTRACT_VERSION:
+            raise ValueError(
+                "contract_version no compatible: "
+                f"{self.contract_version!r}; esperado {BANNER_CONTRACT_VERSION}."
+            )
+        if not isinstance(self.target, str) or not self.target.strip():
+            raise ValueError("target debe ser una cadena no vacía.")
+        if "\x00" in self.target:
+            raise ValueError("target contiene un carácter nulo.")
+        object.__setattr__(self, "target", self.target.strip())
+        object.__setattr__(
+            self,
+            "ports",
+            _normalize_contract_ports(self.ports),
+        )
+        if isinstance(self.timeout_ms, bool) or not isinstance(self.timeout_ms, int):
+            raise ValueError("timeout_ms debe ser un entero.")
+        if self.timeout_ms <= 0:
+            raise ValueError("timeout_ms debe ser mayor a 0.")
+
+    @classmethod
+    def from_seconds(
+        cls,
+        *,
+        target: str,
+        ports: Iterable[int],
+        timeout: float,
+    ) -> "NativeBannerRequest":
+        return cls(
+            target=target,
+            ports=tuple(ports),
+            timeout_ms=_seconds_to_milliseconds(
+                timeout,
+                field_name="timeout",
+            ),
+        )
+
+    def to_contract_dict(self) -> Dict[str, Any]:
+        return {
+            "contract_version": self.contract_version,
+            "record_type": "banner_request",
+            "target": self.target,
+            "ports": list(self.ports),
+            "timeout_ms": self.timeout_ms,
+        }
+
+    @classmethod
+    def from_contract_dict(cls, payload: Dict[str, Any]) -> "NativeBannerRequest":
+        _require_exact_fields(
+            payload,
+            record_name="banner_request",
+            fields=cls._FIELDS,
+        )
+        if payload["record_type"] != "banner_request":
+            raise ValueError("record_type debe ser 'banner_request'.")
+        return cls(
+            target=payload["target"],
+            ports=payload["ports"],
+            timeout_ms=payload["timeout_ms"],
+            contract_version=payload["contract_version"],
+        )
+
+
+@dataclass(frozen=True)
+class NativeBannerResult:
+    """Resultado Go v1 validado antes de incorporarlo al núcleo Python."""
+
+    target: str
+    port: int
+    status: BannerStatus | str
+    service: str
+    banner: Optional[str] = None
+    error: Optional[str] = None
+    source: str = "go"
+    contract_version: int = BANNER_CONTRACT_VERSION
+
+    _FIELDS = {
+        "contract_version",
+        "record_type",
+        "target",
+        "port",
+        "status",
+        "service",
+        "banner",
+        "error",
+        "source",
+    }
+
+    def __post_init__(self) -> None:
+        if self.contract_version != BANNER_CONTRACT_VERSION:
+            raise ValueError(
+                "contract_version no compatible: "
+                f"{self.contract_version!r}; esperado {BANNER_CONTRACT_VERSION}."
+            )
+        if not isinstance(self.target, str) or not self.target.strip():
+            raise ValueError("target debe ser una cadena no vacía.")
+        if "\x00" in self.target:
+            raise ValueError("target contiene un carácter nulo.")
+        object.__setattr__(self, "target", self.target.strip())
+        if isinstance(self.port, bool) or not isinstance(self.port, int):
+            raise ValueError("port debe ser un entero.")
+        if not 1 <= self.port <= 65535:
+            raise ValueError("port debe estar entre 1 y 65535.")
+        object.__setattr__(
+            self,
+            "status",
+            _coerce_enum(BannerStatus, self.status, "status"),
+        )
+        if not isinstance(self.service, str) or not self.service.strip():
+            raise ValueError("service debe ser una cadena no vacía.")
+        if self.banner is not None and not isinstance(self.banner, str):
+            raise ValueError("banner debe ser una cadena o null.")
+        if self.banner is not None and len(self.banner) > 300:
+            raise ValueError("banner excede el límite contractual de 300 caracteres.")
+        if self.error is not None and (
+            not isinstance(self.error, str) or not self.error.strip()
+        ):
+            raise ValueError("error debe ser una cadena no vacía o null.")
+        if self.source != "go":
+            raise ValueError("source debe ser 'go'.")
+
+        if self.status is BannerStatus.CAPTURED:
+            if not self.banner:
+                raise ValueError("status 'captured' requiere un banner no vacío.")
+            if self.error is not None:
+                raise ValueError("status 'captured' no admite error.")
+        elif self.status is BannerStatus.EMPTY:
+            if self.banner not in {None, ""}:
+                raise ValueError("status 'empty' no admite un banner.")
+            if self.error is not None:
+                raise ValueError("status 'empty' no admite error.")
+            object.__setattr__(self, "banner", None)
+        else:
+            if self.banner not in {None, ""}:
+                raise ValueError("status 'error' no admite un banner.")
+            if self.error is None:
+                raise ValueError("status 'error' requiere un detalle.")
+            object.__setattr__(self, "banner", None)
+
+    def to_contract_dict(self) -> Dict[str, Any]:
+        return {
+            "contract_version": self.contract_version,
+            "record_type": "banner_result",
+            "target": self.target,
+            "port": self.port,
+            "status": self.status.value,
+            "service": self.service,
+            "banner": self.banner,
+            "error": self.error,
+            "source": self.source,
+        }
+
+    @classmethod
+    def from_contract_dict(cls, payload: Dict[str, Any]) -> "NativeBannerResult":
+        _require_exact_fields(
+            payload,
+            record_name="banner_result",
+            fields=cls._FIELDS,
+        )
+        if payload["record_type"] != "banner_result":
+            raise ValueError("record_type debe ser 'banner_result'.")
+        return cls(
+            target=payload["target"],
+            port=payload["port"],
+            status=payload["status"],
+            service=payload["service"],
+            banner=payload["banner"],
+            error=payload["error"],
+            source=payload["source"],
+            contract_version=payload["contract_version"],
+        )
 
 
 @dataclass(frozen=True)

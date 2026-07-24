@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"sort"
@@ -15,16 +16,30 @@ import (
 )
 
 const (
+	contractVersion       = 1
 	maxBannerRead        = 1024
 	maxBannerOutputRunes = 300
 	maxBannerWorkers     = 32
 )
 
+type BannerRequest struct {
+	ContractVersion int    `json:"contract_version"`
+	RecordType      string `json:"record_type"`
+	Target          string `json:"target"`
+	Ports           []int  `json:"ports"`
+	TimeoutMS       int64  `json:"timeout_ms"`
+}
+
 type BannerResult struct {
-	Port    int    `json:"port"`
-	Banner  string `json:"banner"`
-	Service string `json:"service"`
-	Error   string `json:"error,omitempty"`
+	ContractVersion int     `json:"contract_version"`
+	RecordType      string  `json:"record_type"`
+	Target          string  `json:"target"`
+	Port            int     `json:"port"`
+	Status          string  `json:"status"`
+	Service         string  `json:"service"`
+	Banner          *string `json:"banner"`
+	Error           *string `json:"error"`
+	Source          string  `json:"source"`
 }
 
 func serviceName(port int) string {
@@ -68,7 +83,7 @@ func serviceName(port int) string {
 
 func parsePorts(rawPorts string) ([]int, error) {
 	parts := strings.Split(rawPorts, ",")
-	portsMap := make(map[int]bool)
+	ports := make([]int, 0, len(parts))
 
 	for _, part := range parts {
 		trimmed := strings.TrimSpace(part)
@@ -81,11 +96,18 @@ func parsePorts(rawPorts string) ([]int, error) {
 		if err != nil {
 			return nil, fmt.Errorf("puerto inválido: %s", trimmed)
 		}
+		ports = append(ports, port)
+	}
 
+	return normalizePorts(ports)
+}
+
+func normalizePorts(rawPorts []int) ([]int, error) {
+	portsMap := make(map[int]bool)
+	for _, port := range rawPorts {
 		if port < 1 || port > 65535 {
 			return nil, fmt.Errorf("puerto fuera de rango: %d", port)
 		}
-
 		portsMap[port] = true
 	}
 
@@ -101,6 +123,52 @@ func parsePorts(rawPorts string) ([]int, error) {
 	sort.Ints(ports)
 
 	return ports, nil
+}
+
+func parseBannerRequest(reader io.Reader) (BannerRequest, error) {
+	var request BannerRequest
+	decoder := json.NewDecoder(reader)
+	decoder.DisallowUnknownFields()
+
+	if err := decoder.Decode(&request); err != nil {
+		return request, fmt.Errorf("solicitud JSON de banners inválida: %w", err)
+	}
+
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return request, fmt.Errorf("la entrada debe contener un único objeto JSON")
+		}
+		return request, fmt.Errorf("contenido adicional inválido: %w", err)
+	}
+
+	if request.ContractVersion != contractVersion {
+		return request, fmt.Errorf(
+			"contract_version no compatible: %d; esperado %d",
+			request.ContractVersion,
+			contractVersion,
+		)
+	}
+	if request.RecordType != "banner_request" {
+		return request, fmt.Errorf("record_type debe ser 'banner_request'")
+	}
+	request.Target = strings.TrimSpace(request.Target)
+	if request.Target == "" {
+		return request, fmt.Errorf("target debe ser una cadena no vacía")
+	}
+	if strings.ContainsRune(request.Target, '\x00') {
+		return request, fmt.Errorf("target contiene un carácter nulo")
+	}
+	ports, err := normalizePorts(request.Ports)
+	if err != nil {
+		return request, err
+	}
+	request.Ports = ports
+	if request.TimeoutMS <= 0 {
+		return request, fmt.Errorf("timeout_ms debe ser mayor a 0")
+	}
+
+	return request, nil
 }
 
 func sanitizeBanner(raw string) string {
@@ -202,23 +270,37 @@ func openBannerConnection(
 	return tlsConnection, nil
 }
 
-func grabBanner(host string, port int, timeout time.Duration) BannerResult {
-	result := BannerResult{
-		Port:    port,
-		Banner:  "",
-		Service: serviceName(port),
+func newBannerResult(host string, port int) BannerResult {
+	return BannerResult{
+		ContractVersion: contractVersion,
+		RecordType:      "banner_result",
+		Target:          host,
+		Port:            port,
+		Status:          "empty",
+		Service:         serviceName(port),
+		Banner:          nil,
+		Error:           nil,
+		Source:          "go",
 	}
+}
+
+func grabBanner(host string, port int, timeout time.Duration) BannerResult {
+	result := newBannerResult(host, port)
 
 	conn, err := openBannerConnection(host, port, timeout)
 	if err != nil {
-		result.Error = err.Error()
+		message := err.Error()
+		result.Status = "error"
+		result.Error = &message
 		return result
 	}
 	defer conn.Close()
 
 	if shouldSendHTTPProbe(port) {
 		if _, err := conn.Write(buildHTTPProbe(host)); err != nil {
-			result.Error = err.Error()
+			message := err.Error()
+			result.Status = "error"
+			result.Error = &message
 			return result
 		}
 	}
@@ -227,11 +309,17 @@ func grabBanner(host string, port int, timeout time.Duration) BannerResult {
 	n, err := conn.Read(buffer)
 
 	if n > 0 {
-		result.Banner = sanitizeBanner(string(buffer[:n]))
+		banner := sanitizeBanner(string(buffer[:n]))
+		if banner != "" {
+			result.Status = "captured"
+			result.Banner = &banner
+		}
 	}
 
 	if err != nil && n == 0 {
-		result.Error = err.Error()
+		message := err.Error()
+		result.Status = "error"
+		result.Error = &message
 		return result
 	}
 
@@ -278,11 +366,48 @@ func grabBanners(host string, ports []int, timeout time.Duration) []BannerResult
 }
 
 func main() {
+	requestStdin := flag.Bool(
+		"request-stdin",
+		false,
+		"Lee una solicitud banner_request v1 completa desde stdin",
+	)
 	host := flag.String("host", "", "Host objetivo")
 	rawPorts := flag.String("ports", "", "Lista de puertos separados por coma")
 	timeoutSeconds := flag.Float64("timeout", 3.0, "Timeout por conexión en segundos")
 
 	flag.Parse()
+
+	if *requestStdin {
+		hasIncompatibleFlag := false
+		flag.Visit(func(visited *flag.Flag) {
+			if visited.Name != "request-stdin" {
+				hasIncompatibleFlag = true
+			}
+		})
+		if hasIncompatibleFlag {
+			fmt.Fprintln(
+				os.Stderr,
+				"--request-stdin no admite parámetros contractuales por argumentos",
+			)
+			os.Exit(1)
+		}
+
+		request, err := parseBannerRequest(os.Stdin)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		timeout := time.Duration(request.TimeoutMS) * time.Millisecond
+		results := grabBanners(request.Target, request.Ports, timeout)
+		encoder := json.NewEncoder(os.Stdout)
+		for _, result := range results {
+			if err := encoder.Encode(result); err != nil {
+				fmt.Fprintln(os.Stderr, "Error generando JSONL:", err)
+				os.Exit(1)
+			}
+		}
+		return
+	}
 
 	if *host == "" {
 		fmt.Fprintln(os.Stderr, "Falta argumento requerido: --host")
