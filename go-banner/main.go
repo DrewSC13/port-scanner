@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	contractVersion       = 1
+	contractVersion      = 1
 	maxBannerRead        = 1024
 	maxBannerOutputRunes = 300
 	maxBannerWorkers     = 32
