@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -15,12 +16,14 @@ from src.errors import ScanCancelledError, SpecializedFlowError
 from src.network import NetworkUtils
 from src.orchestrator import (
     MANDATORY_BANNER_ENGINE,
+    ScanBatchRequest,
     ScanOrchestrator,
     ScanRequest,
 )
 from src.presentation import ConsolePresenter
 from src.profiles import SCAN_PROFILES, resolve_scan_options
 from src.scanner import PortScanner, ScanResult
+from src.targets import TargetParseError, TargetParser
 
 
 class PortScannerCLI:
@@ -43,6 +46,10 @@ class PortScannerCLI:
                 "  python main.py 10.0.0.0 -p 20-443 -t 200 --format json\n"
                 "  python main.py localhost --engine auto --banner-grab "
                 "--banner-engine auto\n"
+                "  python main.py localhost --target 127.0.0.2 "
+                "--target-workers 2\n"
+                "  python main.py --target-file objetivos.txt "
+                "--exclude 127.0.0.2\n"
                 "  python main.py localhost --profile standard --tui"
             ),
             formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -50,7 +57,50 @@ class PortScannerCLI:
         parser.add_argument(
             "host",
             nargs="?",
-            help="Host objetivo autorizado (IP o dominio).",
+            help=(
+                "Objetivo autorizado principal: IP, dominio, CIDR, rango "
+                "o lista separada por comas."
+            ),
+        )
+        target_group = parser.add_argument_group("Opciones de objetivos")
+        target_group.add_argument(
+            "--target",
+            dest="targets",
+            action="append",
+            default=[],
+            help=(
+                "Objetivo adicional autorizado. Puede repetirse y acepta "
+                "IP, dominio, CIDR, rango o lista separada por comas."
+            ),
+        )
+        target_group.add_argument(
+            "--target-file",
+            dest="target_files",
+            action="append",
+            default=[],
+            help=(
+                "Archivo de objetivos autorizados; admite comentarios con #. "
+                "Puede repetirse."
+            ),
+        )
+        target_group.add_argument(
+            "--exclude",
+            dest="exclusions",
+            action="append",
+            default=[],
+            help=(
+                "Objetivo, rango o CIDR que debe excluirse. Puede repetirse."
+            ),
+        )
+        target_group.add_argument(
+            "--target-workers",
+            type=int,
+            default=config.DEFAULT_TARGET_WORKERS,
+            help=(
+                "Máximo de objetivos simultáneos. El presupuesto global de "
+                f"--threads se reparte entre ellos. Máximo: "
+                f"{config.MAX_TARGET_WORKERS}."
+            ),
         )
         parser.add_argument(
             "--tui",
@@ -189,14 +239,48 @@ class PortScannerCLI:
         args.profile = options.profile
         return args
 
+    @staticmethod
+    def _parse_targets(args):
+        specifications = []
+        if getattr(args, "host", None):
+            specifications.append(args.host)
+        specifications.extend(getattr(args, "targets", ()) or ())
+        return TargetParser().parse(
+            specifications,
+            target_files=getattr(args, "target_files", ()) or (),
+            exclusions=getattr(args, "exclusions", ()) or (),
+        )
+
     def validate_arguments(self, args) -> bool:
         """Valida una configuración ya resuelta."""
-        if not args.host:
-            print("Error: debes indicar un host objetivo.")
+        try:
+            parsed_targets = self._parse_targets(args)
+        except TargetParseError as error:
+            print(f"Error: {error}")
             return False
 
-        if not NetworkUtils.is_valid_host(args.host):
-            print(f"Error: host '{args.host}' no válido.")
+        if not parsed_targets:
+            print("Error: las exclusiones eliminaron todos los objetivos.")
+            return False
+
+        args._parsed_targets = parsed_targets
+
+        if (
+            not isinstance(args.target_workers, int)
+            or args.target_workers < 1
+            or args.target_workers > config.MAX_TARGET_WORKERS
+        ):
+            print(
+                "Error: --target-workers debe estar entre 1 y "
+                f"{config.MAX_TARGET_WORKERS}."
+            )
+            return False
+
+        if getattr(args, "tui", False) and len(parsed_targets) != 1:
+            print(
+                "Error: --tui admite un único objetivo en este subhito. "
+                "Usa la salida de consola para sesiones multiobjetivo."
+            )
             return False
 
         if not args.common_ports:
@@ -496,6 +580,9 @@ class PortScannerCLI:
 
         request = ScanRequest.from_namespace(args)
         if getattr(args, "tui", False):
+            parsed_targets = getattr(args, "_parsed_targets", None)
+            if parsed_targets:
+                request = replace(request, host=parsed_targets[0].value)
             self._launch_tui(request)
             return
 
@@ -510,8 +597,23 @@ class PortScannerCLI:
         )
 
         try:
-            outcome = self._orchestrator.run(request)
-            presenter.display_outcome(outcome)
+            parsed_targets = getattr(args, "_parsed_targets", ()) or ()
+            use_batch = bool(
+                getattr(args, "targets", ())
+                or getattr(args, "target_files", ())
+                or getattr(args, "exclusions", ())
+                or len(parsed_targets) > 1
+            )
+            if use_batch:
+                batch_outcome = self._orchestrator.run_many(
+                    ScanBatchRequest.from_namespace(args)
+                )
+                presenter.display_batch_outcome(batch_outcome)
+                if batch_outcome.failures:
+                    raise SystemExit(2)
+            else:
+                outcome = self._orchestrator.run(request)
+                presenter.display_outcome(outcome)
         except ScanCancelledError:
             raise SystemExit(130)
         except Exception as error:

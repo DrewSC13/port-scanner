@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import datetime
 from pathlib import Path
 import re
 import threading
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from config import config
 from src.banner import BannerGrabber
@@ -26,6 +26,14 @@ from src.events import ScanEvent, ScanEventType
 from src.network import NetworkUtils
 from src.reporter import ReportGenerator
 from src.scanner import PortScanner, ScanResult
+from src.targets import (
+    DEFAULT_TARGET_EXPANSION_LIMIT,
+    ParsedTarget,
+    TargetParseError,
+    TargetParser,
+    TargetResolutionError,
+    TargetResolver,
+)
 
 EventCallback = Callable[[ScanEvent], None]
 MANDATORY_SCAN_ENGINE = "rust"
@@ -85,6 +93,66 @@ class ScanOutcome:
     report_format: str
 
 
+@dataclass(frozen=True)
+class ScanBatchRequest:
+    """Solicitud multiobjetivo con opciones de escaneo compartidas."""
+
+    template: ScanRequest
+    targets: Tuple[str, ...]
+    target_files: Tuple[str, ...] = ()
+    exclusions: Tuple[str, ...] = ()
+    target_workers: int = config.DEFAULT_TARGET_WORKERS
+    max_targets: int = DEFAULT_TARGET_EXPANSION_LIMIT
+
+    @classmethod
+    def from_namespace(cls, args: Any) -> "ScanBatchRequest":
+        """Construye una solicitud multiobjetivo desde ``argparse``."""
+        explicit_targets = []
+        if getattr(args, "host", None):
+            explicit_targets.append(args.host)
+        explicit_targets.extend(getattr(args, "targets", ()) or ())
+        return cls(
+            template=ScanRequest.from_namespace(args),
+            targets=tuple(explicit_targets),
+            target_files=tuple(getattr(args, "target_files", ()) or ()),
+            exclusions=tuple(getattr(args, "exclusions", ()) or ()),
+            target_workers=getattr(
+                args,
+                "target_workers",
+                config.DEFAULT_TARGET_WORKERS,
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class ScanFailure:
+    """Fallo aislado de resolución o ejecución de un objetivo."""
+
+    target: str
+    resolved_host: Optional[str]
+    phase: str
+    error_type: str
+    message: str
+
+
+@dataclass(frozen=True)
+class ScanBatchOutcome:
+    """Consolidación determinista de una sesión multiobjetivo."""
+
+    outcomes: List[ScanOutcome]
+    failures: List[ScanFailure]
+    statistics: Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class _ResolvedScanTarget:
+    """Objetivo lógico asociado con una dirección concreta y única."""
+
+    target: str
+    address: str
+    source: str
+
+
 class ScanOrchestrator:
     """Coordina resolución, motores, banners, eventos y reportes."""
 
@@ -100,7 +168,9 @@ class ScanOrchestrator:
     ) -> None:
         self.event_callback = event_callback
         self.cancel_event = threading.Event()
-        self._active_scanner: Optional[PortScanner] = None
+        self._active_scanners: set[PortScanner] = set()
+        self._state_lock = threading.Lock()
+        self._event_lock = threading.RLock()
         self._scan_python_hook = scan_python
         self._scan_rust_hook = scan_rust
         self._apply_banners_hook = apply_banners
@@ -115,24 +185,50 @@ class ScanOrchestrator:
         progress: Optional[float] = None,
         result: Optional[ScanResult] = None,
         data: Optional[Dict[str, Any]] = None,
+        event_callback: Optional[EventCallback] = None,
     ) -> None:
-        if self.event_callback is None:
+        callback = event_callback or self.event_callback
+        if callback is None:
             return
-        self.event_callback(
-            ScanEvent(
-                kind=kind,
-                message=message,
-                progress=progress,
-                result=result,
-                data=data or {},
-            )
+        event = ScanEvent(
+            kind=kind,
+            message=message,
+            progress=progress,
+            result=result,
+            data=data or {},
         )
+        with self._event_lock:
+            callback(event)
+
+    def _register_scanner(self, scanner: PortScanner) -> None:
+        with self._state_lock:
+            self._active_scanners.add(scanner)
+
+    def _unregister_scanner(self, scanner: PortScanner) -> None:
+        with self._state_lock:
+            self._active_scanners.discard(scanner)
+
+    def _active_scanner_snapshot(self) -> List[PortScanner]:
+        with self._state_lock:
+            return list(self._active_scanners)
+
+    def _forward_event(
+        self,
+        event: ScanEvent,
+        *,
+        event_callback: Optional[EventCallback] = None,
+    ) -> None:
+        callback = event_callback or self.event_callback
+        if callback is None:
+            return
+        with self._event_lock:
+            callback(event)
 
     def cancel(self) -> None:
-        """Solicita cancelación cooperativa a la sesión y al motor activo."""
+        """Solicita cancelación cooperativa a todos los motores activos."""
         self.cancel_event.set()
-        if self._active_scanner is not None:
-            self._active_scanner.cancel()
+        for scanner in self._active_scanner_snapshot():
+            scanner.cancel()
 
     def _raise_if_cancelled(self) -> None:
         if self.cancel_event.is_set():
@@ -512,13 +608,23 @@ class ScanOrchestrator:
             banner_engine=banner_engine,
         )
 
-    def run(self, request: ScanRequest) -> ScanOutcome:
-        """Ejecuta una sesión completa y emite eventos independientes de UI."""
-        self.cancel_event.clear()
-        self._raise_if_cancelled()
-
-        if not NetworkUtils.is_valid_host(request.host):
-            raise ValueError(f"Host '{request.host}' no válido.")
+    def _prepare_request(
+        self,
+        request: ScanRequest,
+    ) -> tuple[List[int], str, str]:
+        """Valida opciones compartidas y comprueba motores obligatorios."""
+        if (
+            isinstance(request.threads, bool)
+            or not isinstance(request.threads, int)
+            or request.threads < 1
+            or request.threads > config.MAX_THREADS
+        ):
+            raise ValueError(
+                "threads debe estar entre 1 y "
+                f"{config.MAX_THREADS}."
+            )
+        if request.timeout <= 0:
+            raise ValueError("timeout debe ser mayor a 0.")
 
         ports = self._get_ports_to_scan(request)
         scan_engine = self._resolve_scan_engine(request.engine)
@@ -528,18 +634,31 @@ class ScanOrchestrator:
             else DISABLED_BANNER_ENGINE
         )
         self._require_specialized_binaries(banner_grab=request.banner_grab)
+        return ports, scan_engine, banner_engine
 
-        host_ip = NetworkUtils.resolve_host(request.host)
-        if not host_ip:
-            raise ValueError(f"No se pudo resolver el host '{request.host}'.")
-
+    def _run_resolved(
+        self,
+        request: ScanRequest,
+        *,
+        host_ip: str,
+        ports: Sequence[int],
+        scan_engine: str,
+        banner_engine: str,
+        event_callback: Optional[EventCallback] = None,
+    ) -> ScanOutcome:
+        """Ejecuta el flujo especializado sobre una dirección ya resuelta."""
+        target_data = {
+            "target": request.host,
+            "resolved_host": host_ip,
+        }
         self._emit(
             ScanEventType.STATUS,
             f"Objetivo {request.host} resuelto como {host_ip}.",
             data={
+                **target_data,
                 "phase": "scanning",
-                "resolved_host": host_ip,
             },
+            event_callback=event_callback,
         )
         self._emit(
             ScanEventType.STATUS,
@@ -548,30 +667,36 @@ class ScanOrchestrator:
                 f"{len(ports)} puertos TCP."
             ),
             data={
+                **target_data,
                 "phase": "scanning",
                 "scan_engine": scan_engine,
                 "banner_engine": banner_engine,
                 "total_ports": len(ports),
             },
+            event_callback=event_callback,
         )
 
         scanner = PortScanner(
             timeout=request.timeout,
             max_threads=request.threads,
         )
-        self._active_scanner = scanner
+        self._register_scanner(scanner)
 
         def progress_callback(progress: float, result: ScanResult) -> None:
             self._emit(
                 ScanEventType.PROGRESS,
                 progress=progress,
                 result=result,
+                data=target_data,
+                event_callback=event_callback,
             )
             if result.is_open is True:
                 self._emit(
                     ScanEventType.OPEN_PORT,
                     progress=progress,
                     result=result,
+                    data=target_data,
+                    event_callback=event_callback,
                 )
 
         scanner.progress_callback = progress_callback
@@ -592,9 +717,11 @@ class ScanOrchestrator:
                     ScanEventType.STATUS,
                     f"Enumerando servicios con motor {banner_engine}.",
                     data={
+                        **target_data,
                         "phase": "service-detection",
                         "banner_engine": banner_engine,
                     },
+                    event_callback=event_callback,
                 )
                 banner_operation = (
                     self._apply_banners_hook or self.apply_requested_banners
@@ -639,19 +766,29 @@ class ScanOrchestrator:
             self._emit(
                 ScanEventType.REPORT,
                 f"Reporte guardado en {output_path}.",
-                data={"output_path": str(output_path)},
+                data={
+                    **target_data,
+                    "output_path": str(output_path),
+                },
+                event_callback=event_callback,
             )
             self._emit(
                 ScanEventType.COMPLETE,
                 "Escaneo completado.",
                 progress=100.0,
-                data={"outcome": outcome},
+                data={
+                    **target_data,
+                    "outcome": outcome,
+                },
+                event_callback=event_callback,
             )
             return outcome
         except ScanCancelledError:
             self._emit(
                 ScanEventType.CANCELLED,
                 "Escaneo cancelado por el usuario.",
+                data=target_data,
+                event_callback=event_callback,
             )
             raise
         except KeyboardInterrupt as error:
@@ -659,7 +796,420 @@ class ScanOrchestrator:
             self._emit(
                 ScanEventType.CANCELLED,
                 "Escaneo cancelado por el usuario.",
+                data=target_data,
+                event_callback=event_callback,
             )
             raise ScanCancelledError("Escaneo cancelado por el usuario.") from error
         finally:
-            self._active_scanner = None
+            self._unregister_scanner(scanner)
+
+    @staticmethod
+    def _failure_from_error(
+        *,
+        target: str,
+        resolved_host: Optional[str],
+        phase: str,
+        error: Exception,
+    ) -> ScanFailure:
+        return ScanFailure(
+            target=target,
+            resolved_host=resolved_host,
+            phase=phase,
+            error_type=type(error).__name__,
+            message=str(error),
+        )
+
+    @staticmethod
+    def _resolve_batch_targets(
+        parsed_targets: Sequence[ParsedTarget],
+    ) -> tuple[List[_ResolvedScanTarget], List[ScanFailure]]:
+        resolver = TargetResolver()
+        resolved_targets: List[_ResolvedScanTarget] = []
+        failures: List[ScanFailure] = []
+        seen_addresses = set()
+
+        for parsed_target in parsed_targets:
+            try:
+                identities = resolver.resolve(parsed_target)
+            except TargetResolutionError as error:
+                failures.append(
+                    ScanOrchestrator._failure_from_error(
+                        target=parsed_target.value,
+                        resolved_host=None,
+                        phase="resolution",
+                        error=error,
+                    )
+                )
+                continue
+
+            for identity in identities:
+                address_key = (identity.family.value, identity.address)
+                if address_key in seen_addresses:
+                    continue
+                seen_addresses.add(address_key)
+                resolved_targets.append(
+                    _ResolvedScanTarget(
+                        target=parsed_target.value,
+                        address=identity.address,
+                        source=parsed_target.source,
+                    )
+                )
+
+        return resolved_targets, failures
+
+    def _batch_requests(
+        self,
+        request: ScanRequest,
+        targets: Sequence[_ResolvedScanTarget],
+        *,
+        workers_per_target: int,
+    ) -> List[ScanRequest]:
+        if len(targets) > 1 and request.output:
+            raise ValueError(
+                "--output solo admite una ruta exacta para un único objetivo. "
+                "En modo multiobjetivo usa --report-dir."
+            )
+
+        if len(targets) <= 1:
+            return [
+                replace(
+                    request,
+                    host=target.target,
+                    threads=workers_per_target,
+                )
+                for target in targets
+            ]
+
+        report_directory = Path(request.report_dir).expanduser()
+        extension = {
+            "text": ".txt",
+            "json": ".json",
+            "csv": ".csv",
+            "html": ".html",
+        }[request.report_format]
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        reserved_paths = set()
+        requests = []
+
+        for target in targets:
+            safe_target = self._safe_filename_component(target.target)
+            safe_address = self._safe_filename_component(target.address)
+            base_path = report_directory / (
+                "scan_report_"
+                f"{safe_target}_{safe_address}_{timestamp}{extension}"
+            )
+            output_path = base_path
+            collision_number = 2
+            while output_path in reserved_paths or output_path.exists():
+                output_path = base_path.with_name(
+                    f"{base_path.stem}_{collision_number}{base_path.suffix}"
+                )
+                collision_number += 1
+            reserved_paths.add(output_path)
+            requests.append(
+                replace(
+                    request,
+                    host=target.target,
+                    threads=workers_per_target,
+                    output=str(output_path),
+                )
+            )
+
+        return requests
+
+    @staticmethod
+    def _batch_statistics(
+        outcomes: Sequence[ScanOutcome],
+        failures: Sequence[ScanFailure],
+        *,
+        requested_targets: int,
+        resolved_targets: int,
+        target_workers: int,
+        workers_per_target: int,
+    ) -> Dict[str, Any]:
+        return {
+            "requested_targets": requested_targets,
+            "resolved_targets": resolved_targets,
+            "completed_targets": len(outcomes),
+            "failed_targets": len(failures),
+            "total_ports": sum(
+                outcome.statistics["total_ports"] for outcome in outcomes
+            ),
+            "open_ports": sum(
+                outcome.statistics["open_ports"] for outcome in outcomes
+            ),
+            "closed_ports": sum(
+                outcome.statistics["closed_ports"] for outcome in outcomes
+            ),
+            "filtered_ports": sum(
+                outcome.statistics["filtered_ports"] for outcome in outcomes
+            ),
+            "target_workers": target_workers,
+            "workers_per_target": workers_per_target,
+            "worker_budget": target_workers * workers_per_target,
+        }
+
+    def run_many(self, request: ScanBatchRequest) -> ScanBatchOutcome:
+        """Ejecuta objetivos explícitos con concurrencia global acotada."""
+        self.cancel_event.clear()
+        self._raise_if_cancelled()
+
+        if (
+            isinstance(request.target_workers, bool)
+            or not isinstance(request.target_workers, int)
+            or request.target_workers < 1
+            or request.target_workers > config.MAX_TARGET_WORKERS
+        ):
+            raise ValueError(
+                "target_workers debe estar entre 1 y "
+                f"{config.MAX_TARGET_WORKERS}."
+            )
+
+        parser = TargetParser(max_targets=request.max_targets)
+        parsed_targets = parser.parse(
+            request.targets,
+            target_files=request.target_files,
+            exclusions=request.exclusions,
+        )
+        if not parsed_targets:
+            raise TargetParseError(
+                "Las exclusiones eliminaron todos los objetivos."
+            )
+
+        ports, scan_engine, banner_engine = self._prepare_request(
+            request.template
+        )
+        targets, resolution_failures = self._resolve_batch_targets(
+            parsed_targets
+        )
+        total_units = len(targets) + len(resolution_failures)
+
+        if not targets:
+            outcome = ScanBatchOutcome(
+                outcomes=[],
+                failures=resolution_failures,
+                statistics=self._batch_statistics(
+                    [],
+                    resolution_failures,
+                    requested_targets=len(parsed_targets),
+                    resolved_targets=0,
+                    target_workers=0,
+                    workers_per_target=0,
+                ),
+            )
+            self._emit(
+                ScanEventType.BATCH_COMPLETE,
+                "La sesión terminó sin objetivos resolubles.",
+                progress=100.0,
+                data={"outcome": outcome},
+            )
+            return outcome
+
+        effective_target_workers = min(
+            request.target_workers,
+            len(targets),
+            request.template.threads,
+        )
+        workers_per_target = max(
+            1,
+            request.template.threads // effective_target_workers,
+        )
+        target_requests = self._batch_requests(
+            request.template,
+            targets,
+            workers_per_target=workers_per_target,
+        )
+
+        progress_lock = threading.Lock()
+        target_progress = {
+            index: 0.0 for index in range(len(targets))
+        }
+        completed_before_scan = 0
+
+        def global_progress() -> float:
+            completed = 100.0 * completed_before_scan
+            completed += sum(target_progress.values())
+            return completed / total_units
+
+        for failure in resolution_failures:
+            completed_before_scan += 1
+            self._emit(
+                ScanEventType.TARGET_FAILED,
+                (
+                    f"No se pudo resolver el objetivo "
+                    f"{failure.target}: {failure.message}"
+                ),
+                progress=global_progress(),
+                data={"failure": failure},
+            )
+
+        def target_event_callback(
+            index: int,
+            target: _ResolvedScanTarget,
+            event: ScanEvent,
+        ) -> None:
+            with progress_lock:
+                if event.progress is not None:
+                    target_progress[index] = max(
+                        target_progress[index],
+                        min(100.0, event.progress),
+                    )
+                if event.kind == ScanEventType.COMPLETE:
+                    target_progress[index] = 100.0
+                batch_progress = global_progress()
+
+            event_kind = (
+                ScanEventType.TARGET_COMPLETE
+                if event.kind == ScanEventType.COMPLETE
+                else event.kind
+            )
+            event_data = {
+                **event.data,
+                "target": target.target,
+                "resolved_host": target.address,
+                "target_index": index + 1,
+                "target_total": len(targets),
+                "target_progress": event.progress,
+            }
+            self._forward_event(
+                replace(
+                    event,
+                    kind=event_kind,
+                    progress=(
+                        batch_progress
+                        if event.progress is not None
+                        else None
+                    ),
+                    data=event_data,
+                )
+            )
+
+        indexed_outcomes: Dict[int, ScanOutcome] = {}
+        indexed_failures: Dict[int, ScanFailure] = {}
+        executor = ThreadPoolExecutor(max_workers=effective_target_workers)
+        futures = {}
+
+        try:
+            for index, (target, target_request) in enumerate(
+                zip(targets, target_requests)
+            ):
+                callback = (
+                    lambda event, index=index, target=target: (
+                        target_event_callback(index, target, event)
+                    )
+                )
+                self._emit(
+                    ScanEventType.TARGET_STARTED,
+                    (
+                        f"Iniciando objetivo {index + 1}/{len(targets)}: "
+                        f"{target.target} ({target.address})."
+                    ),
+                    data={
+                        "target": target.target,
+                        "resolved_host": target.address,
+                        "target_index": index + 1,
+                        "target_total": len(targets),
+                    },
+                )
+                future = executor.submit(
+                    self._run_resolved,
+                    target_request,
+                    host_ip=target.address,
+                    ports=ports,
+                    scan_engine=scan_engine,
+                    banner_engine=banner_engine,
+                    event_callback=callback,
+                )
+                futures[future] = (index, target)
+
+            for future in as_completed(futures):
+                index, target = futures[future]
+                try:
+                    indexed_outcomes[index] = future.result()
+                except ScanCancelledError:
+                    self.cancel()
+                    for pending in futures:
+                        pending.cancel()
+                    raise
+                except Exception as error:
+                    failure = self._failure_from_error(
+                        target=target.target,
+                        resolved_host=target.address,
+                        phase="scan",
+                        error=error,
+                    )
+                    indexed_failures[index] = failure
+                    with progress_lock:
+                        target_progress[index] = 100.0
+                        batch_progress = global_progress()
+                    self._emit(
+                        ScanEventType.TARGET_FAILED,
+                        (
+                            f"Falló el objetivo {target.target} "
+                            f"({target.address}): {failure.message}"
+                        ),
+                        progress=batch_progress,
+                        data={
+                            "failure": failure,
+                            "target_index": index + 1,
+                            "target_total": len(targets),
+                        },
+                    )
+        finally:
+            executor.shutdown(
+                wait=True,
+                cancel_futures=self.cancel_event.is_set(),
+            )
+
+        outcomes = [
+            indexed_outcomes[index]
+            for index in sorted(indexed_outcomes)
+        ]
+        scan_failures = [
+            indexed_failures[index]
+            for index in sorted(indexed_failures)
+        ]
+        failures = [*resolution_failures, *scan_failures]
+        batch_outcome = ScanBatchOutcome(
+            outcomes=outcomes,
+            failures=failures,
+            statistics=self._batch_statistics(
+                outcomes,
+                failures,
+                requested_targets=len(parsed_targets),
+                resolved_targets=len(targets),
+                target_workers=effective_target_workers,
+                workers_per_target=workers_per_target,
+            ),
+        )
+        self._emit(
+            ScanEventType.BATCH_COMPLETE,
+            (
+                f"Sesión multiobjetivo completada: {len(outcomes)} correctos, "
+                f"{len(failures)} fallidos."
+            ),
+            progress=100.0,
+            data={"outcome": batch_outcome},
+        )
+        return batch_outcome
+
+    def run(self, request: ScanRequest) -> ScanOutcome:
+        """Ejecuta una sesión completa y emite eventos independientes de UI."""
+        self.cancel_event.clear()
+        self._raise_if_cancelled()
+
+        if not NetworkUtils.is_valid_host(request.host):
+            raise ValueError(f"Host '{request.host}' no válido.")
+
+        ports, scan_engine, banner_engine = self._prepare_request(request)
+        host_ip = NetworkUtils.resolve_host(request.host)
+        if not host_ip:
+            raise ValueError(f"No se pudo resolver el host '{request.host}'.")
+
+        return self._run_resolved(
+            request,
+            host_ip=host_ip,
+            ports=ports,
+            scan_engine=scan_engine,
+            banner_engine=banner_engine,
+        )

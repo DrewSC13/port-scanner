@@ -11,8 +11,10 @@ class ScannerConfig:
     """Configuración del escáner"""
     DEFAULT_TIMEOUT: float = 2.0
     DEFAULT_THREADS: int = 100
+    DEFAULT_TARGET_WORKERS: int = 4
     DEFAULT_REPORT_DIR: str = "reports"
     MAX_THREADS: int = 500
+    MAX_TARGET_WORKERS: int = 32
     DEFAULT_PORTS: str = "1-1000"
     MAX_PORT: int = 65535
     BANNER_TIMEOUT: float = 3.0

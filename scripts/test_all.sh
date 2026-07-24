@@ -103,6 +103,34 @@ fi
 grep -F "requiere Go" /tmp/cicadaport_python_banner_rejection.txt
 
 echo ""
+echo "[7] Probando orquestación multiobjetivo sobre loopback..."
+multi_report_dir="$(mktemp -d)"
+trap 'rm -rf -- "$multi_report_dir"' EXIT
+
+python3 main.py 127.0.0.1 \
+  --target 127.0.0.2 \
+  -p 20 \
+  --engine rust \
+  --threads 2 \
+  --target-workers 2 \
+  --report-dir "$multi_report_dir"
+
+multi_report_count="$(
+  find "$multi_report_dir" \
+    -maxdepth 1 \
+    -type f \
+    -name 'scan_report_*.txt' |
+    wc -l
+)"
+
+if [[ "$multi_report_count" -ne 2 ]]; then
+    echo "Se esperaban 2 reportes multiobjetivo; encontrados: $multi_report_count"
+    exit 1
+fi
+
+echo "Orquestación multiobjetivo validada: 2 reportes loopback"
+
+echo ""
 echo "======================================"
 echo " Pruebas completadas correctamente"
 echo "======================================"

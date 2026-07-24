@@ -17,6 +17,7 @@ los banners solicitados.
 - **CLI Profesional**: Interfaz de línea de comandos intuitiva y robusta
 - **TUI de Consola**: Dashboard terminal en vivo mediante `--tui`, sin lógica de red duplicada
 - **Perfiles Reproducibles**: `safe`, `standard`, `deep` y `custom`
+- **Orquestación Multiobjetivo**: Rangos, CIDR, archivos y exclusiones con concurrencia acotada
 - **Banner Grabbing Explícito**: Solo con `--banner-grab`, mediante el motor Go
 - **Cancelación Cooperativa**: Detención controlada de Rust y Go desde Python
 - **Validación Avanzada**: Verificación completa de entradas y configuraciones
@@ -35,16 +36,23 @@ también registra:
 - estado observado del host y técnica de escaneo utilizada;
 - versión del contrato usada por la comunicación JSON Lines con Rust y Go.
 
-El parser fundacional acepta especificaciones individuales, varias entradas,
+El parser acepta especificaciones individuales, varias entradas,
 CIDR, rangos IP completos y archivos con comentarios. Deduplica preservando el
 orden, permite exclusiones y aplica un límite explícito de 4096 objetivos para
 evitar expansiones masivas accidentales. La resolución usa `getaddrinfo()` y
 puede conservar todas las direcciones IPv4 e IPv6 de un hostname.
 
-Esta capa todavía no convierte la CLI en un orquestador multiobjetivo: la
-ejecución concurrente de varios hosts, el descubrimiento y las técnicas raw se
-incorporarán en subhitos posteriores. La CLI actual continúa ejecutando TCP
-Connect sobre un único objetivo validado.
+La CLI conecta este contrato con el orquestador multiobjetivo. Cada dirección
+resuelta ejecuta su propio flujo especializado, conserva identidad y evidencia,
+genera un reporte independiente y puede fallar sin descartar los resultados
+correctos de otros objetivos. El progreso se consolida para toda la sesión y la
+cancelación cooperativa alcanza todos los motores activos.
+
+`--target-workers` limita cuántos objetivos se procesan simultáneamente.
+`--threads` es un presupuesto global: el orquestador lo reparte entre los
+objetivos activos y nunca lo multiplica silenciosamente. El descubrimiento de
+hosts, las técnicas raw y los escaneos no autorizados continúan fuera del
+alcance.
 
 ## Contratos nativos v1 de Rust y Go
 
@@ -217,6 +225,40 @@ durante la transición: `auto` resuelve siempre a Rust para TCP y a Go para
 banners, sin fallback. El perfil `deep` amplía la cobertura TCP, pero no
 sustituye por sí solo las técnicas de descubrimiento, UDP, SYN, identificación
 de sistema operativo o scripting especializado de otras herramientas.
+
+## Orquestación multiobjetivo
+
+El objetivo posicional puede contener una IP, un hostname, un CIDR, un rango o
+una lista separada por comas. `--target` añade especificaciones y puede
+repetirse. `--target-file` incorpora archivos UTF-8 con comentarios iniciados
+por `#`; `--exclude` elimina objetivos antes de resolverlos.
+
+```bash
+# Dos direcciones explícitas del laboratorio local
+cicadaport 127.0.0.1 --target 127.0.0.2 \
+  -p 20-25 --threads 8 --target-workers 2
+
+# Rango local con una exclusión
+cicadaport 127.0.0.1-127.0.0.4 \
+  --exclude 127.0.0.3 \
+  -p 20-25 --threads 12 --target-workers 3
+
+# Archivo de objetivos autorizados
+cicadaport --target-file objetivos.txt \
+  --exclude 127.0.0.2 \
+  --report-dir reports/laboratorio
+```
+
+Con varios objetivos, cada dirección resuelta recibe un nombre de reporte
+único dentro de `--report-dir`. `--output` se reserva para sesiones con un solo
+objetivo porque representa una ruta exacta. La salida de consola resume
+objetivos solicitados, direcciones resueltas, éxitos, fallos, hallazgos y
+presupuesto efectivo de concurrencia. Si al menos un objetivo falla, los
+reportes correctos se conservan y la CLI termina con código `2`.
+
+El TUI permanece deliberadamente limitado a un objetivo durante este subhito;
+las sesiones multiobjetivo usan la salida de consola. Esta restricción evita
+mezclar estados visuales mientras el núcleo consolida varios motores Rust y Go.
 
 ## Uso seguro del banner grabbing
 

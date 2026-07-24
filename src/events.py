@@ -13,10 +13,14 @@ class ScanEventType(str, Enum):
     """Tipos de eventos emitidos por el orquestador."""
 
     STATUS = "status"
+    TARGET_STARTED = "target_started"
     PROGRESS = "progress"
     OPEN_PORT = "open_port"
     REPORT = "report"
+    TARGET_COMPLETE = "target_complete"
+    TARGET_FAILED = "target_failed"
     COMPLETE = "complete"
+    BATCH_COMPLETE = "batch_complete"
     CANCELLED = "cancelled"
 
 

@@ -18,6 +18,14 @@ class ConsolePresenter:
             print(f"[scan] {event.message}")
             return
 
+        if event.kind == ScanEventType.TARGET_STARTED:
+            print(f"[target] {event.message}")
+            return
+
+        if event.kind == ScanEventType.TARGET_FAILED:
+            print(f"[failed] {event.message}")
+            return
+
         if (
             event.kind == ScanEventType.OPEN_PORT
             and self.verbose
@@ -57,3 +65,39 @@ class ConsolePresenter:
         print(f"  Puertos filtrados: {stats['filtered_ports']}")
         print(f"  Tiempo promedio: {stats['average_response_time']:.3f}s")
         print(f"  Reporte: {outcome.output_path}")
+
+    @classmethod
+    def display_batch_outcome(cls, outcome) -> None:
+        """Muestra resultados por objetivo y un resumen consolidado."""
+        for target_outcome in outcome.outcomes:
+            print(
+                "\n"
+                f"OBJETIVO {target_outcome.target} "
+                f"({target_outcome.resolved_host})"
+            )
+            cls.display_outcome(target_outcome)
+
+        if outcome.failures:
+            print("\nFALLOS POR OBJETIVO")
+            for failure in outcome.failures:
+                resolved = (
+                    f" ({failure.resolved_host})"
+                    if failure.resolved_host
+                    else ""
+                )
+                print(
+                    f"  {failure.target}{resolved}: "
+                    f"{failure.phase}: {failure.message}"
+                )
+
+        stats = outcome.statistics
+        print("\nRESUMEN MULTIOBJETIVO")
+        print(f"  Objetivos solicitados: {stats['requested_targets']}")
+        print(f"  Direcciones resueltas: {stats['resolved_targets']}")
+        print(f"  Objetivos completados: {stats['completed_targets']}")
+        print(f"  Objetivos fallidos: {stats['failed_targets']}")
+        print(f"  Puertos escaneados: {stats['total_ports']}")
+        print(f"  Puertos abiertos: {stats['open_ports']}")
+        print(f"  Concurrencia de objetivos: {stats['target_workers']}")
+        print(f"  Hilos por objetivo: {stats['workers_per_target']}")
+        print(f"  Presupuesto efectivo: {stats['worker_budget']}")
