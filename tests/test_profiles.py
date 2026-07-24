@@ -11,16 +11,16 @@ class TestScanProfiles(unittest.TestCase):
             ["safe", "standard", "deep", "custom"],
         )
 
-    def test_custom_preserves_historical_cli_defaults(self):
+    def test_custom_uses_specialized_engine_defaults(self):
         options = resolve_scan_options("custom")
 
         self.assertEqual(options.ports, config.DEFAULT_PORTS)
         self.assertFalse(options.common_ports)
         self.assertEqual(options.threads, config.DEFAULT_THREADS)
         self.assertEqual(options.timeout, config.DEFAULT_TIMEOUT)
-        self.assertEqual(options.engine, "python")
+        self.assertEqual(options.engine, "rust")
         self.assertFalse(options.banner_grab)
-        self.assertEqual(options.banner_engine, "python")
+        self.assertEqual(options.banner_engine, "go")
 
     def test_explicit_port_range_overrides_safe_common_ports(self):
         options = resolve_scan_options("safe", ports="443")
@@ -32,9 +32,9 @@ class TestScanProfiles(unittest.TestCase):
         options = resolve_scan_options("deep")
 
         self.assertEqual(options.ports, "1-65535")
-        self.assertEqual(options.engine, "auto")
+        self.assertEqual(options.engine, "rust")
         self.assertTrue(options.banner_grab)
-        self.assertEqual(options.banner_engine, "auto")
+        self.assertEqual(options.banner_engine, "go")
 
 
 if __name__ == "__main__":

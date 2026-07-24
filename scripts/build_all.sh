@@ -4,7 +4,7 @@ set -e
 
 echo "======================================"
 echo " CicadaPort - Build All"
-echo " Python + Rust + Go"
+echo " Python orchestrator + Rust scan + Go banners"
 echo "======================================"
 echo ""
 

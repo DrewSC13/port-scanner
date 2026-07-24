@@ -19,7 +19,14 @@ from config import config
 from src.errors import ScanCancelledError
 from src.events import ScanEvent, ScanEventType
 from src.network import NetworkUtils
-from src.orchestrator import ScanOrchestrator, ScanOutcome, ScanRequest
+from src.orchestrator import (
+    DISABLED_BANNER_ENGINE,
+    MANDATORY_BANNER_ENGINE,
+    MANDATORY_SCAN_ENGINE,
+    ScanOrchestrator,
+    ScanOutcome,
+    ScanRequest,
+)
 from src.scanner import ScanResult
 
 
@@ -222,9 +229,11 @@ class CicadaPortApp(App[None]):
         self._scan_active = False
         self._phase = "queued"
         self._resolved_host = "-"
-        self._effective_scan_engine = request.engine
+        self._effective_scan_engine = MANDATORY_SCAN_ENGINE
         self._effective_banner_engine = (
-            request.banner_engine if request.banner_grab else "disabled"
+            MANDATORY_BANNER_ENGINE
+            if request.banner_grab
+            else DISABLED_BANNER_ENGINE
         )
         self._progress = 0.0
         self._scanned_ports = 0
@@ -465,7 +474,7 @@ class CicadaPortApp(App[None]):
         }.get(self._phase, "#94a3b8")
         self.query_one("#topbar", Static).update(
             "[bold #8bdcff]CICADAPORT[/]  "
-            "[#41677f]/ MULTI-ENGINE RECON CONSOLE[/]     "
+            "[#41677f]/ SPECIALIZED RECON CONSOLE[/]     "
             "[#55758d]SESSION[/] "
             f"[#a5b4fc]{self._session_id}[/]\n"
             "[#55758d]TARGET[/] "

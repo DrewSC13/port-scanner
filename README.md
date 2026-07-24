@@ -4,8 +4,9 @@
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey.svg)
 
-Escáner de puertos multi-engine para auditorías de seguridad autorizadas,
-desarrollado en Python con motores auxiliares en Rust y Go.
+Escáner de puertos con arquitectura especializada para auditorías de seguridad
+autorizadas: Python orquesta la sesión, Rust ejecuta el escaneo TCP y Go captura
+los banners solicitados.
 
 ## Características Principales
 
@@ -16,8 +17,8 @@ desarrollado en Python con motores auxiliares en Rust y Go.
 - **CLI Profesional**: Interfaz de línea de comandos intuitiva y robusta
 - **TUI de Consola**: Dashboard terminal en vivo mediante `--tui`, sin lógica de red duplicada
 - **Perfiles Reproducibles**: `safe`, `standard`, `deep` y `custom`
-- **Banner Grabbing Explícito**: Solo con `--banner-grab`, usando Python o Go
-- **Cancelación Cooperativa**: Detención controlada de Python, Rust y Go
+- **Banner Grabbing Explícito**: Solo con `--banner-grab`, mediante el motor Go
+- **Cancelación Cooperativa**: Detención controlada de Rust y Go desde Python
 - **Validación Avanzada**: Verificación completa de entradas y configuraciones
 - **Estadísticas Detalladas**: Métricas completas del escaneo
 
@@ -93,8 +94,29 @@ los resultados vacíos y los fallos no desaparecen silenciosamente.
 Antes de incorporar registros al núcleo, Python rechaza versiones o tipos
 incorrectos, campos ausentes o desconocidos, objetivos y puertos no
 solicitados, duplicados, respuestas incompletas y combinaciones incoherentes de
-estado, banner y error. Estas validaciones no cambian todavía la selección
-pública de motores ni retiran las implementaciones Python.
+estado, banner y error.
+
+## Flujo especializado obligatorio
+
+El flujo público activo es siempre `Python → Rust → Python → Go → Python`:
+
+1. Python valida la solicitud, resuelve el objetivo y prepara el contrato.
+2. Rust ejecuta obligatoriamente el escaneo TCP y transmite resultados JSONL.
+3. Python valida y normaliza cada resultado.
+4. Go recibe únicamente los puertos confirmados como abiertos cuando
+   `--banner-grab` está habilitado.
+5. Python integra los banners y genera la salida, las estadísticas y el reporte.
+
+Antes de resolver el objetivo o iniciar el escaneo, el orquestador comprueba el
+binario Rust y, si se solicitaron banners, también el binario Go. Si falta un
+motor requerido, la sesión falla con un diagnóstico claro y recomienda ejecutar
+`./scripts/build_all.sh`; nunca cambia silenciosamente a Python.
+
+`--engine` y `--banner-engine` se conservan temporalmente para no eliminar aún
+la interfaz pública. `auto` y `rust` activan Rust; `auto` y `go` activan Go.
+Seleccionar explícitamente `python` produce un error controlado. Las
+implementaciones Python de escaneo y banners permanecen en el repositorio como
+referencia interna, pero ya no son seleccionables desde el flujo público.
 
 ## Instalación Rápida
 
@@ -107,6 +129,9 @@ cd port-scanner
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install .
+
+# Compilar los motores obligatorios
+./scripts/build_all.sh
 
 # Mostrar la ayuda de la CLI instalada
 cicadaport --help
@@ -151,9 +176,9 @@ cicadaport 192.168.1.10 --profile safe --tui
 # TCP completo, enumeración de servicios y reporte JSON
 cicadaport 192.168.1.10 --profile deep --format json --tui
 
-# Rango, motor y salida definidos manualmente
+# Rango y salida definidos manualmente con los motores obligatorios
 cicadaport 192.168.1.10 --profile custom -p 20-443 \
-  --engine python --banner-grab --banner-engine go --tui
+  --engine rust --banner-grab --banner-engine go --tui
 ```
 
 Atajos disponibles dentro del monitor:
@@ -176,21 +201,22 @@ teniendo prioridad:
 # Puertos comunes, baja concurrencia y sin banners
 cicadaport 192.168.1.10 --profile safe
 
-# TCP 1-1000 y motores nativos disponibles
+# TCP 1-1000 con Rust y banners Go
 cicadaport 192.168.1.10 --profile standard
 
 # TCP 1-65535 y enumeración de servicios abiertos
 cicadaport 192.168.1.10 --profile deep
 
-# Comportamiento histórico o configuración totalmente manual
-cicadaport 192.168.1.10 --profile custom -p 22-443 --engine python
+# Configuración manual conservando el flujo especializado
+cicadaport 192.168.1.10 --profile custom -p 22-443 --engine rust
 ```
 
-`auto` prefiere Rust para el escaneo TCP y Go para banners cuando sus binarios
-están compilados; en caso contrario usa los motores Python. El perfil `deep`
-amplía la cobertura TCP, pero no sustituye por sí solo las técnicas de
-descubrimiento, UDP, SYN, identificación de sistema operativo o scripting
-especializado de otras herramientas.
+Las opciones manuales de puertos, concurrencia, timeout, banners y salida siguen
+teniendo prioridad sobre el perfil. Los selectores de motor permanecen solo
+durante la transición: `auto` resuelve siempre a Rust para TCP y a Go para
+banners, sin fallback. El perfil `deep` amplía la cobertura TCP, pero no
+sustituye por sí solo las técnicas de descubrimiento, UDP, SYN, identificación
+de sistema operativo o scripting especializado de otras herramientas.
 
 ## Uso seguro del banner grabbing
 
@@ -198,19 +224,16 @@ El escaneo TCP no envía cargas de aplicación por defecto. Para solicitar
 banners de forma explícita:
 
 ```bash
-# Motor de escaneo Python + banners Python
-cicadaport localhost --engine python --banner-grab
-
-# Motor de escaneo Rust + banners Python
-cicadaport localhost --engine rust --banner-grab
-
-# Cualquier motor de escaneo + banners Go
+# Rust obligatorio + Go obligatorio para banners
 cicadaport localhost --engine rust --banner-grab --banner-engine go
+
+# Los alias transitorios auto mantienen el mismo flujo
+cicadaport localhost --engine auto --banner-grab --banner-engine auto
 ```
 
-Python y Go negocian TLS en los puertos cifrados conocidos, envían un único
-`HEAD` solo a una lista cerrada de puertos HTTP/HTTPS y se limitan a lectura
-pasiva en los demás servicios.
+Go negocia TLS en los puertos cifrados conocidos, envía un único `HEAD` solo a
+una lista cerrada de puertos HTTP/HTTPS y se limita a lectura pasiva en los
+demás servicios.
 
 ## Resultados y reportes
 
@@ -241,4 +264,6 @@ automáticos nunca sobrescriben un reporte existente: cuando coinciden objetivo
 y segundo de ejecución, se añade un sufijo como `_2` o `_3`. Si el escaneo no
 detecta puertos abiertos, la terminal y el reporte TXT lo indican expresamente.
 Los reportes añaden de forma compatible el estado, la razón, la dirección y la
-técnica; JSON identifica además la versión del contrato.
+técnica. TXT, JSON, CSV y HTML identifican también los motores efectivos
+`rust` y `go` —o `no usado` cuando la fase de banners está desactivada—; JSON
+incluye además la versión del contrato.

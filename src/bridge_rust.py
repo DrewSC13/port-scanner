@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from pathlib import Path
 import queue
 import subprocess
@@ -53,7 +54,10 @@ class RustScannerBridge:
 
     def is_available(self) -> bool:
         """Verifica si el binario Rust existe y se puede ejecutar."""
-        return self.binary_path.exists() and self.binary_path.is_file()
+        return self.binary_path.is_file() and os.access(
+            self.binary_path,
+            os.X_OK,
+        )
 
     @staticmethod
     def _normalize_ports(ports: List[int]) -> List[int]:
@@ -290,7 +294,8 @@ class RustScannerBridge:
         if not self.is_available():
             raise FileNotFoundError(
                 f"Binario Rust no encontrado: {self.binary_path}. "
-                "Compila rust-core antes de usar --engine rust."
+                "Ejecuta ./scripts/build_all.sh; el flujo especializado "
+                "no utilizará fallback Python."
             )
 
         normalized_ports = self._normalize_ports(ports)

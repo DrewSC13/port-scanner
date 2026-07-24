@@ -11,9 +11,13 @@ from config import config
 from src.banner import BannerGrabber
 from src.bridge_go import GoBannerBridge
 from src.bridge_rust import RustScannerBridge
-from src.errors import ScanCancelledError
+from src.errors import ScanCancelledError, SpecializedFlowError
 from src.network import NetworkUtils
-from src.orchestrator import ScanOrchestrator, ScanRequest
+from src.orchestrator import (
+    MANDATORY_BANNER_ENGINE,
+    ScanOrchestrator,
+    ScanRequest,
+)
 from src.presentation import ConsolePresenter
 from src.profiles import SCAN_PROFILES, resolve_scan_options
 from src.scanner import PortScanner, ScanResult
@@ -37,8 +41,8 @@ class PortScannerCLI:
                 "  python main.py localhost\n"
                 "  python main.py 192.168.1.1 --profile standard\n"
                 "  python main.py 10.0.0.0 -p 20-443 -t 200 --format json\n"
-                "  python main.py localhost --engine rust --banner-grab "
-                "--banner-engine go\n"
+                "  python main.py localhost --engine auto --banner-grab "
+                "--banner-engine auto\n"
                 "  python main.py localhost --profile standard --tui"
             ),
             formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -96,7 +100,10 @@ class PortScannerCLI:
             "--engine",
             choices=["auto", "python", "rust"],
             default=None,
-            help="Motor TCP. 'auto' prefiere Rust si está compilado.",
+            help=(
+                "Compatibilidad transitoria: 'auto' y 'rust' usan Rust. "
+                "'python' se conserva, pero el flujo público lo rechaza."
+            ),
         )
 
         banner_group = scan_group.add_mutually_exclusive_group()
@@ -117,7 +124,10 @@ class PortScannerCLI:
             "--banner-engine",
             choices=["auto", "python", "go"],
             default=None,
-            help="Motor de banners. 'auto' prefiere Go si está compilado.",
+            help=(
+                "Compatibilidad transitoria: 'auto' y 'go' usan Go. "
+                "'python' se conserva, pero el flujo público lo rechaza."
+            ),
         )
 
         output_group = parser.add_argument_group("Opciones de salida")
@@ -206,11 +216,14 @@ class PortScannerCLI:
             print("Error: el timeout debe ser mayor a 0.")
             return False
 
-        if args.banner_engine in {"go", "auto"} and not args.banner_grab:
-            print(
-                "Aviso: --banner-engine solo se usa cuando los banners "
-                "están habilitados."
-            )
+        try:
+            ScanOrchestrator._resolve_scan_engine(args.engine)
+            if args.banner_grab:
+                ScanOrchestrator._resolve_banner_engine(args.banner_engine)
+        except SpecializedFlowError as error:
+            print(f"Error: {error}")
+            return False
+
         return True
 
     def _get_ports_to_scan(self, args) -> List[int]:
@@ -403,9 +416,11 @@ class PortScannerCLI:
         banner_engine: str,
         timeout: float,
     ) -> List[ScanResult]:
-        if banner_engine == "go":
-            return self._apply_go_banners(host_ip, results, timeout)
-        return self._apply_python_banners(host_ip, results, timeout)
+        if banner_engine != MANDATORY_BANNER_ENGINE:
+            raise SpecializedFlowError(
+                "La fase pública de banners requiere obligatoriamente el motor Go."
+            )
+        return self._apply_go_banners(host_ip, results, timeout)
 
     def _generate_report(
         self,
@@ -413,12 +428,16 @@ class PortScannerCLI:
         target: str,
         output_file: str,
         report_format: str,
+        scan_engine: Optional[str] = None,
+        banner_engine: Optional[str] = None,
     ) -> str:
         return ScanOrchestrator.generate_report(
             results,
             target,
             output_file,
             report_format,
+            scan_engine,
+            banner_engine,
         )
 
     def _resolve_output_path(

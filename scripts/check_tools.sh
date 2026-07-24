@@ -2,7 +2,7 @@
 
 echo "======================================"
 echo " CicadaPort - Verificación"
-echo " Python + Rust + Go"
+echo " Python orchestrator + Rust scan + Go banners"
 echo "======================================"
 echo ""
 
