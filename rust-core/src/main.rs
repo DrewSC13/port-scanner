@@ -113,10 +113,7 @@ fn parse_legacy_ports(raw_ports: &str) -> Result<Vec<u16>, String> {
     normalize_ports(ports)
 }
 
-fn validate_contract_header(
-    contract_version: u8,
-    record_type: &str,
-) -> Result<(), String> {
+fn validate_contract_header(contract_version: u8, record_type: &str) -> Result<(), String> {
     if contract_version != CONTRACT_VERSION {
         return Err(format!(
             "contract_version no compatible: {}; esperado {}",
@@ -191,8 +188,7 @@ fn parse_args() -> AppConfig {
                 );
             }
         }
-        let raw_request =
-            read_stdin().unwrap_or_else(|error| print_error_and_exit(&error));
+        let raw_request = read_stdin().unwrap_or_else(|error| print_error_and_exit(&error));
         return parse_scan_request(&raw_request)
             .unwrap_or_else(|error| print_error_and_exit(&error));
     }
@@ -207,8 +203,7 @@ fn parse_args() -> AppConfig {
             print_error_and_exit("--ports-stdin y --ports son alternativas mutuamente excluyentes")
         }
         (true, None) => {
-            let raw_request =
-                read_stdin().unwrap_or_else(|error| print_error_and_exit(&error));
+            let raw_request = read_stdin().unwrap_or_else(|error| print_error_and_exit(&error));
             parse_legacy_ports_request(&raw_request)
                 .unwrap_or_else(|error| print_error_and_exit(&error))
         }
@@ -504,8 +499,8 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_legacy_ports, parse_scan_request, resolve_socket_addr,
-        write_jsonl_record, ScanEvidence, ScanResult, CONTRACT_VERSION,
+        parse_legacy_ports, parse_scan_request, resolve_socket_addr, write_jsonl_record,
+        ScanEvidence, ScanResult, CONTRACT_VERSION,
     };
 
     #[test]
