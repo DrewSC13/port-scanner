@@ -276,6 +276,33 @@ class PortScanner:
         """Inicia el registro de estado para un motor externo."""
         self._begin_scan()
 
+    def record_external_result(
+        self,
+        result: ScanResult,
+        total_results: int,
+    ) -> None:
+        """Registra y comunica un resultado externo en cuanto está disponible."""
+        if not self.is_scanning:
+            raise RuntimeError("El escaneo externo no está activo.")
+        if total_results <= 0:
+            raise ValueError("total_results debe ser mayor a 0.")
+        if len(self.results) >= total_results:
+            raise ValueError(
+                "El motor externo devolvió más resultados de los esperados."
+            )
+        if any(
+            existing.port == result.port and existing.protocol == result.protocol
+            for existing in self.results
+        ):
+            raise ValueError(
+                f"Resultado externo duplicado: {result.port}/{result.protocol}."
+            )
+
+        self.results.append(result)
+        if self.progress_callback:
+            progress = (len(self.results) / total_results) * 100
+            self.progress_callback(progress, result)
+
     def cancel(self) -> None:
         """Solicita la detención cooperativa del escaneo activo."""
         self._cancel_event.set()
@@ -288,6 +315,8 @@ class PortScanner:
     def finish_external_scan(
         self,
         results: List[ScanResult],
+        *,
+        replay_progress: bool = True,
     ) -> List[ScanResult]:
         """
         Registra todos los resultados de un motor externo y finaliza el estado.
@@ -297,7 +326,7 @@ class PortScanner:
         """
         self.results = list(results)
         self._finish_scan()
-        if self.progress_callback and self.results:
+        if replay_progress and self.progress_callback and self.results:
             total_results = len(self.results)
             for index, result in enumerate(self.results, start=1):
                 progress = (index / total_results) * 100

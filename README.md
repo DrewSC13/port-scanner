@@ -45,6 +45,37 @@ ejecución concurrente de varios hosts, el descubrimiento y las técnicas raw se
 incorporarán en subhitos posteriores. La CLI actual continúa ejecutando TCP
 Connect sobre un único objetivo validado.
 
+## Streaming JSONL del motor Rust
+
+El puente Python ya no construye un argumento gigante con todos los puertos.
+Envía por `stdin` una solicitud JSON v1 con la lista estructurada, incluso para
+el perfil `deep` de 65.535 puertos. La invocación directa histórica con
+`--ports` se conserva temporalmente, pero Python utiliza siempre
+`--ports-stdin`.
+
+Rust emite por `stdout` un registro `port_result` v1 por línea en el orden real
+de finalización y fuerza un `flush` después de cada resultado. Los diagnósticos
+se reservan para `stderr`. El puente valida versión, tipo de registro, estado,
+evidencia, puertos inesperados, duplicados y streams incompletos antes de
+incorporar cada observación al núcleo.
+
+El progreso de la CLI y del TUI procede ahora de puertos realmente completados:
+cada línea válida actualiza inmediatamente la cobertura y los hallazgos
+abiertos. El orden de llegada no se altera durante el stream; los resultados
+solo se ordenan al consolidar la sesión y generar los reportes.
+
+Protocolo de entrada utilizado por Python:
+
+```json
+{"contract_version":1,"record_type":"scan_request","ports":[22,80,443]}
+```
+
+La salida contiene objetos JSON independientes, uno por línea:
+
+```json
+{"contract_version":1,"record_type":"port_result","target":"127.0.0.1","address":"127.0.0.1","address_family":"ipv4","host_state":"up","port":80,"protocol":"tcp","state":"open","reason":"connection_accepted","technique":"tcp_connect","service":"HTTP","banner":null,"response_time":0.001,"is_open":true,"evidence":{"reason":"connection_accepted","source":"rust","errno":0}}
+```
+
 ## Instalación Rápida
 
 ```bash

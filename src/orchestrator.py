@@ -154,6 +154,20 @@ class ScanOrchestrator:
         target: str = "",
         address: str = "",
     ) -> ScanResult:
+        if (
+            result.get("contract_version") is not None
+            or result.get("record_type") is not None
+        ):
+            converted = ScanResult.from_contract_dict(result)
+            if address:
+                converted.attach_target_identity(
+                    target or converted.target or address,
+                    address,
+                )
+            elif target:
+                converted.target = target
+            return converted
+
         port = int(result.get("port", 0))
         is_open = result.get("is_open")
         if not isinstance(is_open, bool):
@@ -247,28 +261,47 @@ class ScanOrchestrator:
                 "Ejecuta ./scripts/build_all.sh."
             )
 
+        ports = self._get_ports_to_scan(request)
+        total_ports = len(ports)
         scanner.start_external_scan()
-        try:
-            raw_results = rust_bridge.scan(
-                host=host_ip,
-                ports=self._get_ports_to_scan(request),
-                timeout=request.timeout,
-                workers=request.threads,
-                cancel_event=self.cancel_event,
-            )
-            results = [
+
+        def record_result(item: Dict[str, Any]) -> None:
+            scanner.record_external_result(
                 self._convert_rust_result(
                     item,
                     target=host_ip,
                     address=host_ip,
+                ),
+                total_results=total_ports,
+            )
+
+        try:
+            raw_results = rust_bridge.scan(
+                host=host_ip,
+                ports=ports,
+                timeout=request.timeout,
+                workers=request.threads,
+                cancel_event=self.cancel_event,
+                result_callback=record_result,
+            )
+            if not scanner.results:
+                for item in raw_results:
+                    record_result(item)
+            if len(scanner.results) != total_ports:
+                raise RuntimeError(
+                    "El motor Rust no completó todos los puertos solicitados."
                 )
-                for item in raw_results
-            ]
         except Exception:
-            scanner.finish_external_scan([])
+            scanner.finish_external_scan(
+                [],
+                replay_progress=False,
+            )
             raise
 
-        return scanner.finish_external_scan(results)
+        return scanner.finish_external_scan(
+            scanner.results,
+            replay_progress=False,
+        )
 
     def _apply_python_banners(
         self,
