@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 import queue
 import subprocess
 import threading
 from typing import Any, Callable, Dict, IO, List, Optional
 
-from src.contracts import SCAN_CONTRACT_VERSION
+from src.contracts import NativeScanRequest
 from src.errors import ScanCancelledError
 from src.scanner import ScanResult
 
@@ -19,6 +20,27 @@ StreamItem = tuple[str, object]
 
 class RustScannerBridge:
     """Ejecuta Rust con entrada estructurada y salida JSON Lines validada."""
+
+    _RESULT_FIELDS = {
+        "contract_version",
+        "record_type",
+        "target",
+        "address",
+        "address_family",
+        "host_state",
+        "port",
+        "protocol",
+        "state",
+        "reason",
+        "technique",
+        "service",
+        "banner",
+        "response_time",
+        "is_open",
+        "evidence",
+    }
+    _EVIDENCE_REQUIRED_FIELDS = {"reason", "source"}
+    _EVIDENCE_OPTIONAL_FIELDS = {"detail", "errno"}
 
     def __init__(self, binary_path: str | None = None) -> None:
         project_root = Path(__file__).resolve().parent.parent
@@ -98,10 +120,90 @@ class RustScannerBridge:
                 cls._terminate_process(process)
                 raise ScanCancelledError("Motor Rust cancelado por el usuario.")
 
-    @staticmethod
-    def _validate_record(payload: object) -> Dict[str, Any]:
+    @classmethod
+    def _validate_record(
+        cls,
+        payload: object,
+        *,
+        requested_target: str,
+    ) -> Dict[str, Any]:
         if not isinstance(payload, dict):
             raise RuntimeError("Cada línea JSONL de Rust debe ser un objeto.")
+        received_fields = set(payload)
+        missing_fields = cls._RESULT_FIELDS - received_fields
+        unexpected_fields = received_fields - cls._RESULT_FIELDS
+        if missing_fields:
+            names = ", ".join(sorted(missing_fields))
+            raise RuntimeError(f"Registro JSONL Rust incompleto; faltan: {names}.")
+        if unexpected_fields:
+            names = ", ".join(sorted(unexpected_fields))
+            raise RuntimeError(
+                f"Registro JSONL Rust contiene campos no admitidos: {names}."
+            )
+
+        if payload["target"] != requested_target:
+            raise RuntimeError(
+                "Registro JSONL Rust incompatible: target no coincide "
+                "con la solicitud."
+            )
+        if isinstance(payload["port"], bool) or not isinstance(payload["port"], int):
+            raise RuntimeError("Registro JSONL Rust incompatible: port no es entero.")
+        response_time = payload["response_time"]
+        if (
+            isinstance(response_time, bool)
+            or not isinstance(response_time, (int, float))
+            or not math.isfinite(float(response_time))
+            or response_time < 0
+        ):
+            raise RuntimeError(
+                "Registro JSONL Rust incompatible: response_time no es válido."
+            )
+        if not isinstance(payload["service"], str):
+            raise RuntimeError(
+                "Registro JSONL Rust incompatible: service no es una cadena."
+            )
+        if payload["banner"] is not None:
+            raise RuntimeError(
+                "Registro JSONL Rust incompatible: el escáner no debe emitir banners."
+            )
+
+        evidence = payload["evidence"]
+        if not isinstance(evidence, dict):
+            raise RuntimeError(
+                "Registro JSONL Rust incompatible: evidence debe ser un objeto."
+            )
+        evidence_fields = set(evidence)
+        missing_evidence = cls._EVIDENCE_REQUIRED_FIELDS - evidence_fields
+        unexpected_evidence = evidence_fields - (
+            cls._EVIDENCE_REQUIRED_FIELDS | cls._EVIDENCE_OPTIONAL_FIELDS
+        )
+        if missing_evidence:
+            names = ", ".join(sorted(missing_evidence))
+            raise RuntimeError(
+                f"Registro JSONL Rust incompleto; evidence omite: {names}."
+            )
+        if unexpected_evidence:
+            names = ", ".join(sorted(unexpected_evidence))
+            raise RuntimeError(
+                "Registro JSONL Rust contiene campos de evidencia no admitidos: "
+                f"{names}."
+            )
+        if evidence["source"] != "rust":
+            raise RuntimeError(
+                "Registro JSONL Rust incompatible: evidence.source debe ser 'rust'."
+            )
+        if "detail" in evidence and not isinstance(evidence["detail"], str):
+            raise RuntimeError(
+                "Registro JSONL Rust incompatible: evidence.detail no es una cadena."
+            )
+        if "errno" in evidence and (
+            isinstance(evidence["errno"], bool)
+            or not isinstance(evidence["errno"], int)
+        ):
+            raise RuntimeError(
+                "Registro JSONL Rust incompatible: evidence.errno no es entero."
+            )
+
         try:
             result = ScanResult.from_contract_dict(payload)
         except (TypeError, ValueError) as error:
@@ -111,6 +213,51 @@ class RustScannerBridge:
         if payload.get("is_open") is not result.is_open:
             raise RuntimeError(
                 "Registro JSONL Rust incompatible: is_open no coincide con state."
+            )
+        if result.protocol != "tcp":
+            raise RuntimeError(
+                "Registro JSONL Rust incompatible: protocol debe ser 'tcp'."
+            )
+        if result.technique.value != "tcp_connect":
+            raise RuntimeError(
+                "Registro JSONL Rust incompatible: technique debe ser 'tcp_connect'."
+            )
+        allowed_reasons = {
+            "open": {"connection_accepted"},
+            "closed": {"connection_refused", "connection_reset"},
+            "filtered": {
+                "timeout",
+                "permission_denied",
+                "host_unreachable",
+                "network_unreachable",
+                "resolution_failed",
+                "internal_error",
+            },
+        }
+        state = result.state.value
+        if state not in allowed_reasons:
+            raise RuntimeError(
+                f"Registro JSONL Rust incompatible: state {state!r} "
+                "no pertenece al contrato TCP Connect v1."
+            )
+        if result.reason.value not in allowed_reasons[state]:
+            raise RuntimeError(
+                "Registro JSONL Rust incompatible: reason no es coherente "
+                "con state."
+            )
+        if state in {"open", "closed"} and result.host_state.value != "up":
+            raise RuntimeError(
+                "Registro JSONL Rust incompatible: un resultado open/closed "
+                "requiere host_state 'up'."
+            )
+        if state == "open" and not result.service:
+            raise RuntimeError(
+                "Registro JSONL Rust incompatible: un puerto abierto requiere service."
+            )
+        if state != "open" and result.service:
+            raise RuntimeError(
+                "Registro JSONL Rust incompatible: un puerto no abierto "
+                "no debe declarar service."
             )
         return result.to_contract_dict()
 
@@ -147,26 +294,19 @@ class RustScannerBridge:
             )
 
         normalized_ports = self._normalize_ports(ports)
-        if timeout <= 0:
-            raise ValueError("El timeout de Rust debe ser mayor a 0.")
-        if workers <= 0:
-            raise ValueError("Los workers de Rust deben ser mayores a 0.")
+        request_contract = NativeScanRequest.from_seconds(
+            target=host,
+            ports=normalized_ports,
+            timeout=timeout,
+            workers=workers,
+        )
+        normalized_ports = list(request_contract.ports)
 
         command = [
             str(self.binary_path),
-            "--host",
-            host,
-            "--ports-stdin",
-            "--timeout",
-            str(timeout),
-            "--workers",
-            str(workers),
+            "--request-stdin",
         ]
-        request = {
-            "contract_version": SCAN_CONTRACT_VERSION,
-            "record_type": "scan_request",
-            "ports": normalized_ports,
-        }
+        request = request_contract.to_contract_dict()
 
         process = subprocess.Popen(
             command,
@@ -251,7 +391,10 @@ class RustScannerBridge:
                         f"Rust devolvió JSONL inválido: {raw_line}"
                     ) from error
 
-                record = self._validate_record(payload)
+                record = self._validate_record(
+                    payload,
+                    requested_target=request_contract.target,
+                )
                 port = record["port"]
                 if port not in requested_ports:
                     raise RuntimeError(f"Rust devolvió el puerto no solicitado {port}.")

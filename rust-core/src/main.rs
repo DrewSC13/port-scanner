@@ -14,12 +14,24 @@ const CONTRACT_VERSION: u8 = 1;
 struct AppConfig {
     host: String,
     ports: Vec<u16>,
-    timeout: f64,
+    timeout_ms: u64,
     workers: usize,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ScanRequest {
+    contract_version: u8,
+    record_type: String,
+    target: String,
+    ports: Vec<u16>,
+    timeout_ms: u64,
+    workers: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyPortsRequest {
     contract_version: u8,
     record_type: String,
     ports: Vec<u16>,
@@ -101,33 +113,89 @@ fn parse_legacy_ports(raw_ports: &str) -> Result<Vec<u16>, String> {
     normalize_ports(ports)
 }
 
-fn parse_scan_request(raw_request: &str) -> Result<Vec<u16>, String> {
+fn validate_contract_header(
+    contract_version: u8,
+    record_type: &str,
+) -> Result<(), String> {
+    if contract_version != CONTRACT_VERSION {
+        return Err(format!(
+            "contract_version no compatible: {}; esperado {}",
+            contract_version, CONTRACT_VERSION
+        ));
+    }
+    if record_type != "scan_request" {
+        return Err("record_type debe ser 'scan_request'".to_string());
+    }
+    Ok(())
+}
+
+fn parse_scan_request(raw_request: &str) -> Result<AppConfig, String> {
     let request: ScanRequest = serde_json::from_str(raw_request)
         .map_err(|error| format!("Solicitud JSON de puertos inválida: {error}"))?;
 
-    if request.contract_version != CONTRACT_VERSION {
-        return Err(format!(
-            "contract_version no compatible: {}; esperado {}",
-            request.contract_version, CONTRACT_VERSION
-        ));
+    validate_contract_header(request.contract_version, &request.record_type)?;
+    if request.target.trim().is_empty() {
+        return Err("target debe ser una cadena no vacía".to_string());
     }
-    if request.record_type != "scan_request" {
-        return Err("record_type debe ser 'scan_request'".to_string());
+    if request.target.contains('\0') {
+        return Err("target contiene un carácter nulo".to_string());
+    }
+    if request.timeout_ms == 0 {
+        return Err("timeout_ms debe ser mayor a 0".to_string());
+    }
+    if request.workers == 0 {
+        return Err("workers debe ser mayor a 0".to_string());
     }
 
+    let ports = normalize_ports(request.ports)?;
+    let workers = request.workers.min(512).min(ports.len());
+
+    Ok(AppConfig {
+        host: request.target.trim().to_string(),
+        ports,
+        timeout_ms: request.timeout_ms,
+        workers,
+    })
+}
+
+fn parse_legacy_ports_request(raw_request: &str) -> Result<Vec<u16>, String> {
+    let request: LegacyPortsRequest = serde_json::from_str(raw_request)
+        .map_err(|error| format!("Solicitud JSON de puertos inválida: {error}"))?;
+
+    validate_contract_header(request.contract_version, &request.record_type)?;
     normalize_ports(request.ports)
 }
 
-fn read_ports_from_stdin() -> Result<Vec<u16>, String> {
+fn read_stdin() -> Result<String, String> {
     let mut raw_request = String::new();
     io::stdin()
         .read_to_string(&mut raw_request)
         .map_err(|error| format!("No se pudo leer stdin: {error}"))?;
-    parse_scan_request(&raw_request)
+    Ok(raw_request)
 }
 
 fn parse_args() -> AppConfig {
     let args: Vec<String> = env::args().collect();
+
+    if has_arg(&args, "--request-stdin") {
+        for incompatible in [
+            "--host",
+            "--ports",
+            "--ports-stdin",
+            "--timeout",
+            "--workers",
+        ] {
+            if has_arg(&args, incompatible) {
+                print_error_and_exit(
+                    "--request-stdin no admite parámetros contractuales por argumentos",
+                );
+            }
+        }
+        let raw_request =
+            read_stdin().unwrap_or_else(|error| print_error_and_exit(&error));
+        return parse_scan_request(&raw_request)
+            .unwrap_or_else(|error| print_error_and_exit(&error));
+    }
 
     let host = get_arg_value(&args, "--host")
         .unwrap_or_else(|| print_error_and_exit("Falta argumento requerido: --host"));
@@ -139,7 +207,10 @@ fn parse_args() -> AppConfig {
             print_error_and_exit("--ports-stdin y --ports son alternativas mutuamente excluyentes")
         }
         (true, None) => {
-            read_ports_from_stdin().unwrap_or_else(|error| print_error_and_exit(&error))
+            let raw_request =
+                read_stdin().unwrap_or_else(|error| print_error_and_exit(&error));
+            parse_legacy_ports_request(&raw_request)
+                .unwrap_or_else(|error| print_error_and_exit(&error))
         }
         (false, Some(raw_ports)) => {
             parse_legacy_ports(&raw_ports).unwrap_or_else(|error| print_error_and_exit(&error))
@@ -154,9 +225,10 @@ fn parse_args() -> AppConfig {
         .parse::<f64>()
         .unwrap_or_else(|_| print_error_and_exit("Timeout inválido"));
 
-    if timeout <= 0.0 {
+    if !timeout.is_finite() || timeout <= 0.0 {
         print_error_and_exit("Timeout debe ser mayor a 0");
     }
+    let timeout_ms = (timeout * 1000.0).round().max(1.0) as u64;
 
     let requested_workers = get_arg_value(&args, "--workers")
         .unwrap_or_else(|| "100".to_string())
@@ -172,7 +244,7 @@ fn parse_args() -> AppConfig {
     AppConfig {
         host,
         ports,
-        timeout,
+        timeout_ms,
         workers,
     }
 }
@@ -359,7 +431,7 @@ fn write_jsonl_record<W: Write>(writer: &mut W, result: &ScanResult) -> Result<(
 }
 
 fn run_scan<W: Write>(config: AppConfig, writer: &mut W) -> Result<(), String> {
-    let timeout = Duration::from_secs_f64(config.timeout);
+    let timeout = Duration::from_millis(config.timeout_ms);
     let expected_results = config.ports.len();
     let host = Arc::new(config.host);
     let queue = Arc::new(Mutex::new(VecDeque::from(config.ports)));
@@ -432,17 +504,33 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_legacy_ports, parse_scan_request, resolve_socket_addr, write_jsonl_record,
-        ScanEvidence, ScanResult, CONTRACT_VERSION,
+        parse_legacy_ports, parse_scan_request, resolve_socket_addr,
+        write_jsonl_record, ScanEvidence, ScanResult, CONTRACT_VERSION,
     };
 
     #[test]
     fn parses_versioned_stdin_request() {
-        let ports = parse_scan_request(
-            r#"{"contract_version":1,"record_type":"scan_request","ports":[443,80,443]}"#,
+        let config = parse_scan_request(
+            r#"{"contract_version":1,"record_type":"scan_request","target":"127.0.0.1","ports":[443,80,443],"timeout_ms":250,"workers":8}"#,
         )
         .expect("solicitud válida");
-        assert_eq!(ports, vec![80, 443]);
+        assert_eq!(config.host, "127.0.0.1");
+        assert_eq!(config.ports, vec![80, 443]);
+        assert_eq!(config.timeout_ms, 250);
+        assert_eq!(config.workers, 2);
+    }
+
+    #[test]
+    fn rejects_incomplete_or_extended_contract_requests() {
+        let incomplete = parse_scan_request(
+            r#"{"contract_version":1,"record_type":"scan_request","target":"127.0.0.1","ports":[80],"workers":1}"#,
+        );
+        assert!(incomplete.is_err());
+
+        let extended = parse_scan_request(
+            r#"{"contract_version":1,"record_type":"scan_request","target":"127.0.0.1","ports":[80],"timeout_ms":250,"workers":1,"unexpected":true}"#,
+        );
+        assert!(extended.is_err());
     }
 
     #[test]

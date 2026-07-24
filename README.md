@@ -32,7 +32,7 @@ también registra:
 - razón técnica y evidencia que sustentan ese estado;
 - objetivo solicitado, dirección resuelta y familia IPv4/IPv6;
 - estado observado del host y técnica de escaneo utilizada;
-- versión del contrato para la futura comunicación JSON Lines con Rust.
+- versión del contrato usada por la comunicación JSON Lines con Rust y Go.
 
 El parser fundacional acepta especificaciones individuales, varias entradas,
 CIDR, rangos IP completos y archivos con comentarios. Deduplica preservando el
@@ -45,13 +45,14 @@ ejecución concurrente de varios hosts, el descubrimiento y las técnicas raw se
 incorporarán en subhitos posteriores. La CLI actual continúa ejecutando TCP
 Connect sobre un único objetivo validado.
 
-## Streaming JSONL del motor Rust
+## Contratos nativos v1 de Rust y Go
 
-El puente Python ya no construye un argumento gigante con todos los puertos.
-Envía por `stdin` una solicitud JSON v1 con la lista estructurada, incluso para
-el perfil `deep` de 65.535 puertos. La invocación directa histórica con
-`--ports` se conserva temporalmente, pero Python utiliza siempre
-`--ports-stdin`.
+Python entrega a Rust por `stdin` una solicitud `scan_request` v1 completa:
+objetivo resuelto, puertos normalizados, timeout en milisegundos y concurrencia
+efectiva. Ningún dato contractual viaja fragmentado en argumentos del proceso.
+La invocación directa histórica con `--host` y `--ports` se conserva
+temporalmente para compatibilidad interna, pero el puente Python utiliza siempre
+`--request-stdin`.
 
 Rust emite por `stdout` un registro `port_result` v1 por línea en el orden real
 de finalización y fuerza un `flush` después de cada resultado. Los diagnósticos
@@ -64,10 +65,10 @@ cada línea válida actualiza inmediatamente la cobertura y los hallazgos
 abiertos. El orden de llegada no se altera durante el stream; los resultados
 solo se ordenan al consolidar la sesión y generar los reportes.
 
-Protocolo de entrada utilizado por Python:
+Protocolo de entrada utilizado por Python para Rust:
 
 ```json
-{"contract_version":1,"record_type":"scan_request","ports":[22,80,443]}
+{"contract_version":1,"record_type":"scan_request","target":"127.0.0.1","ports":[22,80,443],"timeout_ms":2000,"workers":3}
 ```
 
 La salida contiene objetos JSON independientes, uno por línea:
@@ -75,6 +76,25 @@ La salida contiene objetos JSON independientes, uno por línea:
 ```json
 {"contract_version":1,"record_type":"port_result","target":"127.0.0.1","address":"127.0.0.1","address_family":"ipv4","host_state":"up","port":80,"protocol":"tcp","state":"open","reason":"connection_accepted","technique":"tcp_connect","service":"HTTP","banner":null,"response_time":0.001,"is_open":true,"evidence":{"reason":"connection_accepted","source":"rust","errno":0}}
 ```
+
+Go usa el mismo aislamiento: recibe un `banner_request` v1 completo mediante
+`--request-stdin` y emite un `banner_result` v1 por cada puerto abierto
+solicitado. Cada resultado declara explícitamente `captured`, `empty` o `error`;
+los resultados vacíos y los fallos no desaparecen silenciosamente.
+
+```json
+{"contract_version":1,"record_type":"banner_request","target":"127.0.0.1","ports":[80,443],"timeout_ms":3000}
+```
+
+```json
+{"contract_version":1,"record_type":"banner_result","target":"127.0.0.1","port":80,"status":"captured","service":"HTTP","banner":"HTTP/1.0 200 OK","error":null,"source":"go"}
+```
+
+Antes de incorporar registros al núcleo, Python rechaza versiones o tipos
+incorrectos, campos ausentes o desconocidos, objetivos y puertos no
+solicitados, duplicados, respuestas incompletas y combinaciones incoherentes de
+estado, banner y error. Estas validaciones no cambian todavía la selección
+pública de motores ni retiran las implementaciones Python.
 
 ## Instalación Rápida
 
