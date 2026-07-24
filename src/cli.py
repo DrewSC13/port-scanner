@@ -265,11 +265,24 @@ class PortScannerCLI:
                 "No se encontró el binario Rust. " "Ejecuta ./scripts/build_all.sh."
             )
 
+        ports = self._get_ports_to_scan(args)
+        total_ports = len(ports)
         scanner.start_external_scan()
+
+        def record_result(item: Dict[str, Any]) -> None:
+            scanner.record_external_result(
+                self._convert_rust_result(
+                    item,
+                    target=host_ip,
+                    address=host_ip,
+                ),
+                total_results=total_ports,
+            )
+
         try:
             raw_results = rust_bridge.scan(
                 host=host_ip,
-                ports=self._get_ports_to_scan(args),
+                ports=ports,
                 timeout=args.timeout,
                 workers=args.threads,
                 cancel_event=(
@@ -277,19 +290,25 @@ class PortScannerCLI:
                     if self._orchestrator is not None
                     else None
                 ),
+                result_callback=record_result,
             )
-            results = [
-                self._convert_rust_result(
-                    item,
-                    target=host_ip,
-                    address=host_ip,
+            if not scanner.results:
+                for item in raw_results:
+                    record_result(item)
+            if len(scanner.results) != total_ports:
+                raise RuntimeError(
+                    "El motor Rust no completó todos los puertos solicitados."
                 )
-                for item in raw_results
-            ]
         except Exception:
-            scanner.finish_external_scan([])
+            scanner.finish_external_scan(
+                [],
+                replay_progress=False,
+            )
             raise
-        return scanner.finish_external_scan(results)
+        return scanner.finish_external_scan(
+            scanner.results,
+            replay_progress=False,
+        )
 
     def _apply_python_banners(
         self,

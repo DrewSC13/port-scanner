@@ -15,17 +15,36 @@ pytest -v
 
 echo ""
 echo "[2] Probando motor Rust directamente..."
-./rust-core/target/release/rust-core \
-  --host 127.0.0.1 \
-  --ports 20,21,22,23,24,25 \
-  --timeout 1 \
-  --workers 2 \
-  >/tmp/cicadaport_rust_test.json
+rust_request='{"contract_version":1,"record_type":"scan_request","ports":[20,21,22,23,24,25]}'
+printf '%s\n' "$rust_request" |
+  ./rust-core/target/release/rust-core \
+    --host 127.0.0.1 \
+    --ports-stdin \
+    --timeout 1 \
+    --workers 2 \
+    >/tmp/cicadaport_rust_test.jsonl
+
+python3 - /tmp/cicadaport_rust_test.jsonl <<'PY'
+import json
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+records = [
+    json.loads(line)
+    for line in path.read_text(encoding="utf-8").splitlines()
+]
+assert len(records) == 6
+assert {record["port"] for record in records} == set(range(20, 26))
+assert all(record["contract_version"] == 1 for record in records)
+assert all(record["record_type"] == "port_result" for record in records)
+print("JSONL Rust validado: 6 registros contractuales")
+PY
 
 if command -v jq >/dev/null 2>&1; then
-    jq . /tmp/cicadaport_rust_test.json
+    jq -c . /tmp/cicadaport_rust_test.jsonl
 else
-    cat /tmp/cicadaport_rust_test.json
+    cat /tmp/cicadaport_rust_test.jsonl
 fi
 
 echo ""
