@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -e
+set -Eeuo pipefail
 
 echo "======================================"
 echo " CicadaPort - Test All"
@@ -78,11 +78,132 @@ else
 fi
 
 echo ""
-echo "[4] Probando CLI especializada con Rust obligatorio..."
+echo "[4] Verificando superficie contractual de los binarios nativos..."
+python3 - <<'PY'
+from pathlib import Path
+import subprocess
+
+RUST = Path("rust-core/target/release/rust-core")
+GO = Path("go-banner/go-banner")
+
+
+def run_without_closing_stdin(command, expected_code):
+    process = subprocess.Popen(
+        [str(item) for item in command],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        return_code = process.wait(timeout=2)
+    except subprocess.TimeoutExpired as error:
+        process.kill()
+        process.wait()
+        raise AssertionError(
+            f"La invocación leyó stdin o no terminó antes de red: {command}"
+        ) from error
+
+    stdout = process.stdout.read()
+    stderr = process.stderr.read()
+    process.stdin.close()
+    process.stdout.close()
+    process.stderr.close()
+
+    if return_code != expected_code:
+        raise AssertionError(
+            f"Código {return_code}; esperado {expected_code}: {command}\n"
+            f"stdout={stdout!r}\nstderr={stderr!r}"
+        )
+    return stdout, stderr
+
+
+for binary, usage, historical in (
+    (
+        RUST,
+        "Usage: rust-core --request-stdin",
+        ("--host", "--ports", "--ports-stdin", "--timeout", "--workers"),
+    ),
+    (
+        GO,
+        "Usage: go-banner --request-stdin",
+        ("--host", "--ports", "--timeout"),
+    ),
+):
+    stdout, stderr = run_without_closing_stdin([binary, "--help"], 0)
+    if stderr:
+        raise AssertionError(f"{binary} --help escribió stderr: {stderr!r}")
+    if usage not in stdout:
+        raise AssertionError(f"Ayuda inesperada de {binary}: {stdout!r}")
+    for argument in historical:
+        if argument in stdout:
+            raise AssertionError(
+                f"La ayuda de {binary} todavía expone {argument}: {stdout!r}"
+            )
+
+rust_invalid = (
+    [],
+    ["--host", "127.0.0.1", "--ports", "80"],
+    ["--ports", "80"],
+    ["--ports-stdin"],
+    ["--timeout", "1"],
+    ["--workers", "1"],
+    ["--unknown"],
+    ["positional"],
+    ["-request-stdin"],
+    ["--request-stdin", "--host", "127.0.0.1"],
+    ["--request-stdin", "--help"],
+)
+go_invalid = (
+    [],
+    ["--host", "127.0.0.1", "--ports", "80"],
+    ["--ports", "80"],
+    ["--timeout", "1"],
+    ["--unknown"],
+    ["positional"],
+    ["-request-stdin"],
+    ["--request-stdin", "--host", "127.0.0.1"],
+    ["--request-stdin", "--help"],
+)
+
+for binary, invalid_cases in ((RUST, rust_invalid), (GO, go_invalid)):
+    for arguments in invalid_cases:
+        stdout, stderr = run_without_closing_stdin([binary, *arguments], 2)
+        if stdout or not stderr:
+            raise AssertionError(
+                f"Canales inválidos para {binary} {arguments}: "
+                f"stdout={stdout!r}, stderr={stderr!r}"
+            )
+
+for binary in (RUST, GO):
+    completed = subprocess.run(
+        [str(binary), "--request-stdin"],
+        input="{}\n",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=2,
+        check=False,
+    )
+    if completed.returncode != 1:
+        raise AssertionError(
+            f"{binary} devolvió {completed.returncode}; esperado 1 para contrato inválido"
+        )
+    if completed.stdout or not completed.stderr:
+        raise AssertionError(
+            f"Canales contractuales inválidos para {binary}: "
+            f"stdout={completed.stdout!r}, stderr={completed.stderr!r}"
+        )
+
+print("Invocación nativa consolidada: ayuda 0, contrato inválido 1, uso inválido 2")
+PY
+
+echo ""
+echo "[5] Probando CLI especializada con Rust obligatorio..."
 python3 main.py 127.0.0.1 -p 20-25 --threads 2
 
 echo ""
-echo "[5] Verificando retirada de selectores públicos de motor..."
+echo "[6] Verificando retirada de selectores públicos de motor..."
 legacy_invocations=(
   "--engine rust"
   "--engine auto"
@@ -114,7 +235,7 @@ for legacy_invocation in "${legacy_invocations[@]}"; do
 done
 
 echo ""
-echo "[6] Verificando identidad y paridad de la ayuda pública..."
+echo "[7] Verificando identidad y paridad de la ayuda pública..."
 python3 main.py --help >/tmp/cicadaport_main_help.txt
 python3 -c 'from main import main; main()' --help \
   >/tmp/cicadaport_entrypoint_help.txt
@@ -134,7 +255,7 @@ fi
 echo "Ayuda pública canónica y equivalente: cicadaport"
 
 echo ""
-echo "[7] Probando orquestación multiobjetivo sobre loopback..."
+echo "[8] Probando orquestación multiobjetivo sobre loopback..."
 multi_report_dir="$(mktemp -d)"
 trap 'rm -rf -- "$multi_report_dir"' EXIT
 

@@ -67,9 +67,10 @@ alcance.
 Python entrega a Rust por `stdin` una solicitud `scan_request` v1 completa:
 objetivo resuelto, puertos normalizados, timeout en milisegundos y concurrencia
 efectiva. Ningún dato contractual viaja fragmentado en argumentos del proceso.
-La invocación directa histórica con `--host` y `--ports` se conserva
-temporalmente para compatibilidad interna, pero el puente Python utiliza siempre
-`--request-stdin`.
+`--request-stdin` es la única interfaz operativa admitida por los binarios Rust
+y Go. `--help` es la única operación informativa adicional. Cualquier argumento
+histórico, desconocido, posicional o mezclado termina con código `2` antes de
+leer `stdin` o iniciar actividad de red.
 
 Rust emite por `stdout` un registro `port_result` v1 por línea en el orden real
 de finalización y fuerza un `flush` después de cada resultado. Los diagnósticos
@@ -106,6 +107,34 @@ los resultados vacíos y los fallos no desaparecen silenciosamente.
 ```json
 {"contract_version":1,"record_type":"banner_result","target":"127.0.0.1","port":80,"status":"captured","service":"HTTP","banner":"HTTP/1.0 200 OK","error":null,"source":"go"}
 ```
+
+### Migración de invocaciones nativas directas
+
+Las rutas históricas se retiraron en el Subhito 3.2.9. Los binarios son
+componentes internos; la interfaz pública continúa siendo `cicadaport`. La
+etiqueta firmada `subhito-3.2.8` conserva el último estado que admitía estas
+formas, que ya no están soportadas:
+
+```bash
+rust-core --host 127.0.0.1 --ports 80,443
+rust-core --host 127.0.0.1 --ports-stdin --timeout 1 --workers 2
+go-banner --host 127.0.0.1 --ports 80,443 --timeout 1
+```
+
+La migración consiste en enviar una solicitud v1 completa por `stdin`:
+
+```bash
+printf '%s\n' \
+  '{"contract_version":1,"record_type":"scan_request","target":"127.0.0.1","ports":[80,443],"timeout_ms":1000,"workers":2}' | \
+  rust-core --request-stdin
+
+printf '%s\n' \
+  '{"contract_version":1,"record_type":"banner_request","target":"127.0.0.1","ports":[80,443],"timeout_ms":1000}' | \
+  go-banner --request-stdin
+```
+
+Esta consolidación no cambia las versiones, los campos ni la semántica de los
+contratos JSONL v1.
 
 Antes de incorporar registros al núcleo, Python rechaza versiones o tipos
 incorrectos, campos ausentes o desconocidos, objetivos y puertos no

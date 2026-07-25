@@ -63,8 +63,8 @@ probada.
 
 | Código | Materia observada | Estado actual | Decisión pendiente |
 | --- | --- | --- | --- |
-| `DT-01` | `--engine`, `--banner-engine` y los alias de selección. | El contrato `CIPE-CICADAPORT-3.2.8-001` aprobó retirarlos de la CLI: Rust y Go permanecen como invariantes internas y las opciones históricas deben terminar con código `2` antes de actividad de red. | Implementación en el Subhito 3.2.8; el cierre solo se materializa con CI verde y la etiqueta firmada `subhito-3.2.8`. |
-| `DT-02` | Invocación nativa histórica mediante `--host`, `--ports` y variantes heredadas. | Los puentes Python usan `--request-stdin`; las rutas históricas permanecen para compatibilidad interna. | Definir su ventana de soporte y el criterio verificable de retirada. |
+| `DT-01` | `--engine`, `--banner-engine` y los alias de selección. | Resuelto en el Subhito 3.2.8: la CLI no expone selectores, Rust y Go permanecen como invariantes internas y las opciones históricas terminan con código `2` antes de actividad de red. | Cerrado y congelado mediante `subhito-3.2.8` sobre `f69c0bfc0e48ac84845c5c556561bc02e3f5b7d1`. |
+| `DT-02` | Invocación nativa histórica mediante `--host`, `--ports` y variantes heredadas. | El contrato `CINV-CICADAPORT-3.2.9-001` aprobó retirar las rutas históricas y consolidar `--request-stdin` como única interfaz operativa; `--help` permanece como operación informativa. | Implementación en el Subhito 3.2.9; el cierre exige códigos `0/1/2`, rechazo previo a `stdin` y red, CI verde y la etiqueta firmada `subhito-3.2.9`. |
 | `DT-03` | Implementaciones Python de escaneo y banners. | Permanecen como referencia interna y soporte de pruebas, sin selección pública. | Definir si se conservan, se aíslan como fixtures o se retiran en una versión mayor. |
 | `DT-04` | Proyección temporal `is_open`. | El contrato canónico usa estados y evidencia, pero mantiene `is_open` para consumidores anteriores. | Establecer política de compatibilidad, migración y versionado contractual. |
 | `DT-05` | Versionado de aplicación y estado de release. | La aplicación declara `2.2.0`, mientras la política de seguridad indica que aún no existe una release lista para producción. | Definir SemVer, changelog, release candidate y soporte de artefactos. |
@@ -72,9 +72,9 @@ probada.
 
 ## Secuencia restante del Hito 3
 
-Los subhitos siguientes están `DEFINED` y **no están autorizados**. Su numeración
-establece el orden previsto; cualquier cambio requiere actualizar esta hoja de
-ruta mediante un commit documental firmado.
+Los subhitos se ejecutan de forma estrictamente secuencial. Cada sección declara
+su base, contrato y estado verificable; ningún subhito dependiente puede comenzar
+antes del cierre firmado del anterior.
 
 ### Subhito 3.2.8 — Consolidación de la interfaz pública especializada
 
@@ -109,25 +109,48 @@ Criterios mínimos de aceptación:
 - validación local completa, commit firmado y CI completamente verde;
 - cierre mediante la etiqueta anotada y firmada `subhito-3.2.8`.
 
-El Subhito 3.2.9 permanece bloqueado hasta que Git demuestre el estado
-`CLOSED_FROZEN` de este subhito.
+La dependencia del Subhito 3.2.9 quedó satisfecha mediante la etiqueta firmada
+`subhito-3.2.8` sobre `f69c0bfc0e48ac84845c5c556561bc02e3f5b7d1`.
 
 ### Subhito 3.2.9 — Consolidación de la invocación nativa
 
-**Estado:** `DEFINED`
-**Dependencia:** 3.2.8 `CLOSED_FROZEN`.
+**Estado verificable:** `CLOSED_FROZEN` únicamente cuando exista y se haya
+verificado la etiqueta firmada `subhito-3.2.9`; hasta entonces el estado se
+determina por la evidencia disponible como `IN_IMPLEMENTATION` o `CANDIDATE`.
+**Contrato aprobado:** `CINV-CICADAPORT-3.2.9-001`, versión `1.0-CANDIDATA`.
+**Base autorizada:** `main@f69c0bfc0e48ac84845c5c556561bc02e3f5b7d1`
+y `subhito-3.2.8`.
 
-Objetivo:
+Decisión autorizada:
 
-- resolver `DT-02`;
-- declarar `--request-stdin` como única interfaz contractual de los puentes;
-- decidir y ejecutar, cuando corresponda, la retirada controlada de argumentos
-  nativos históricos;
-- mantener validación estricta, JSONL determinista y diagnósticos por `stderr`.
+- retirar de Rust `--host`, `--ports`, `--ports-stdin`, `--timeout` y
+  `--workers`;
+- retirar de Go `--host`, `--ports` y `--timeout`;
+- declarar `--request-stdin` como única interfaz operativa contractual de ambos
+  binarios y `--help` como única operación informativa adicional;
+- usar código `0` para éxito o ayuda, `1` para fallos contractuales o de
+  ejecución y `2` para uso inválido;
+- rechazar argumentos retirados, desconocidos, posicionales o mezclados antes
+  de leer `stdin` o iniciar actividad de red;
+- mantener sin cambios los contratos JSONL v1, sus versiones, campos, estados,
+  razones, evidencia, `is_open`, puentes Python, CLI, TUI, reportes,
+  empaquetado, workflows y versión `2.2.0`.
 
-No se autoriza anticipadamente la retirada de compatibilidad. El contrato del
-subhito deberá demostrar consumidores afectados, estrategia de transición y
-pruebas directas de Rust y Go.
+Criterios mínimos de aceptación:
+
+- las ayudas nativas muestran únicamente `--request-stdin` y `--help`;
+- no permanece código ejecutable de las rutas históricas;
+- Rust conserva streaming incremental y `flush` por cada `port_result`;
+- Go conserva un `banner_result` JSONL por puerto y no emite arrays históricos;
+- los puentes continúan usando exactamente `argv == ["--request-stdin"]`;
+- las pruebas directas demuestran los códigos `0/1/2` y el rechazo previo a
+  lectura de `stdin` y red;
+- README y CONTRIBUTING documentan la migración desde `subhito-3.2.8`;
+- validación local completa, commit firmado y CI completamente verde;
+- cierre mediante la etiqueta anotada y firmada `subhito-3.2.9`.
+
+El Subhito 3.2.10 permanece bloqueado hasta que Git demuestre el estado
+`CLOSED_FROZEN` de este subhito.
 
 ### Subhito 3.2.10 — Estabilización del contrato canónico de resultados
 

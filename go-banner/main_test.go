@@ -1,10 +1,96 @@
 package main
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"unicode/utf8"
 )
+
+type panicReader struct{}
+
+func (panicReader) Read([]byte) (int, error) {
+	panic("stdin no debe leerse para ayuda o uso inválido")
+}
+
+func TestOnlyContractualProcessInvocationsAreAccepted(t *testing.T) {
+	t.Parallel()
+
+	selected, err := parseInvocation([]string{"--request-stdin"})
+	if err != nil || selected != invocationRequestStdin {
+		t.Fatalf("request invocation = (%v, %v); want request-stdin", selected, err)
+	}
+
+	selected, err = parseInvocation([]string{"--help"})
+	if err != nil || selected != invocationHelp {
+		t.Fatalf("help invocation = (%v, %v); want help", selected, err)
+	}
+
+	invalidCases := [][]string{
+		nil,
+		{"--host", "127.0.0.1"},
+		{"--ports", "80"},
+		{"--timeout", "1"},
+		{"--unknown"},
+		{"positional"},
+		{"-request-stdin"},
+		{"--request-stdin", "--help"},
+	}
+	for _, args := range invalidCases {
+		if _, err := parseInvocation(args); err == nil {
+			t.Fatalf("parseInvocation accepted invalid args: %v", args)
+		}
+	}
+}
+
+func TestHelpAndInvalidUsageDoNotReadStdin(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := run([]string{"--help"}, panicReader{}, &stdout, &stderr); code != 0 {
+		t.Fatalf("help exit code = %d; want 0", code)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("help wrote stderr: %q", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Usage: go-banner --request-stdin") {
+		t.Fatalf("unexpected help: %q", stdout.String())
+	}
+	for _, historical := range []string{"--host", "--ports", "--timeout"} {
+		if strings.Contains(stdout.String(), historical) {
+			t.Fatalf("help exposes historical argument %s", historical)
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"--host", "127.0.0.1"}, panicReader{}, &stdout, &stderr); code != 2 {
+		t.Fatalf("invalid usage exit code = %d; want 2", code)
+	}
+	if stdout.Len() != 0 || stderr.Len() == 0 {
+		t.Fatalf("invalid usage channels = stdout %q, stderr %q", stdout.String(), stderr.String())
+	}
+}
+
+func TestInvalidContractReturnsExecutionFailure(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run(
+		[]string{"--request-stdin"},
+		strings.NewReader("{}\n"),
+		&stdout,
+		&stderr,
+	)
+	if code != 1 {
+		t.Fatalf("invalid contract exit code = %d; want 1", code)
+	}
+	if stdout.Len() != 0 || stderr.Len() == 0 {
+		t.Fatalf("invalid contract channels = stdout %q, stderr %q", stdout.String(), stderr.String())
+	}
+}
 
 func TestParseVersionedBannerRequest(t *testing.T) {
 	t.Parallel()

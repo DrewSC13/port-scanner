@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/tls"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -20,6 +19,14 @@ const (
 	maxBannerRead        = 1024
 	maxBannerOutputRunes = 300
 	maxBannerWorkers     = 32
+	helpText             = "Usage: go-banner --request-stdin\n\nOpciones:\n  --request-stdin  Lee una solicitud banner_request v1 completa desde stdin.\n  --help           Muestra esta ayuda y termina.\n"
+)
+
+type invocation int
+
+const (
+	invocationHelp invocation = iota
+	invocationRequestStdin
 )
 
 type BannerRequest struct {
@@ -79,27 +86,6 @@ func serviceName(port int) string {
 	}
 
 	return "Unknown"
-}
-
-func parsePorts(rawPorts string) ([]int, error) {
-	parts := strings.Split(rawPorts, ",")
-	ports := make([]int, 0, len(parts))
-
-	for _, part := range parts {
-		trimmed := strings.TrimSpace(part)
-
-		if trimmed == "" {
-			continue
-		}
-
-		port, err := strconv.Atoi(trimmed)
-		if err != nil {
-			return nil, fmt.Errorf("puerto inválido: %s", trimmed)
-		}
-		ports = append(ports, port)
-	}
-
-	return normalizePorts(ports)
 }
 
 func normalizePorts(rawPorts []int) ([]int, error) {
@@ -365,79 +351,60 @@ func grabBanners(host string, ports []int, timeout time.Duration) []BannerResult
 	return results
 }
 
+func parseInvocation(args []string) (invocation, error) {
+	if len(args) != 1 {
+		if len(args) == 0 {
+			return 0, fmt.Errorf("uso inválido: se requiere --request-stdin o --help")
+		}
+		return 0, fmt.Errorf("uso inválido: solo se admite --request-stdin o --help")
+	}
+
+	switch args[0] {
+	case "--help":
+		return invocationHelp, nil
+	case "--request-stdin":
+		return invocationRequestStdin, nil
+	default:
+		return 0, fmt.Errorf("uso inválido: solo se admite --request-stdin o --help")
+	}
+}
+
+func run(
+	args []string,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) int {
+	selected, err := parseInvocation(args)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+
+	if selected == invocationHelp {
+		fmt.Fprint(stdout, helpText)
+		return 0
+	}
+
+	request, err := parseBannerRequest(stdin)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+
+	timeout := time.Duration(request.TimeoutMS) * time.Millisecond
+	results := grabBanners(request.Target, request.Ports, timeout)
+	encoder := json.NewEncoder(stdout)
+	for _, result := range results {
+		if err := encoder.Encode(result); err != nil {
+			fmt.Fprintln(stderr, "Error generando JSONL:", err)
+			return 1
+		}
+	}
+
+	return 0
+}
+
 func main() {
-	requestStdin := flag.Bool(
-		"request-stdin",
-		false,
-		"Lee una solicitud banner_request v1 completa desde stdin",
-	)
-	host := flag.String("host", "", "Host objetivo")
-	rawPorts := flag.String("ports", "", "Lista de puertos separados por coma")
-	timeoutSeconds := flag.Float64("timeout", 3.0, "Timeout por conexión en segundos")
-
-	flag.Parse()
-
-	if *requestStdin {
-		hasIncompatibleFlag := false
-		flag.Visit(func(visited *flag.Flag) {
-			if visited.Name != "request-stdin" {
-				hasIncompatibleFlag = true
-			}
-		})
-		if hasIncompatibleFlag {
-			fmt.Fprintln(
-				os.Stderr,
-				"--request-stdin no admite parámetros contractuales por argumentos",
-			)
-			os.Exit(1)
-		}
-
-		request, err := parseBannerRequest(os.Stdin)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		timeout := time.Duration(request.TimeoutMS) * time.Millisecond
-		results := grabBanners(request.Target, request.Ports, timeout)
-		encoder := json.NewEncoder(os.Stdout)
-		for _, result := range results {
-			if err := encoder.Encode(result); err != nil {
-				fmt.Fprintln(os.Stderr, "Error generando JSONL:", err)
-				os.Exit(1)
-			}
-		}
-		return
-	}
-
-	if *host == "" {
-		fmt.Fprintln(os.Stderr, "Falta argumento requerido: --host")
-		os.Exit(1)
-	}
-
-	if *rawPorts == "" {
-		fmt.Fprintln(os.Stderr, "Falta argumento requerido: --ports")
-		os.Exit(1)
-	}
-
-	if *timeoutSeconds <= 0 {
-		fmt.Fprintln(os.Stderr, "Timeout debe ser mayor a 0")
-		os.Exit(1)
-	}
-
-	ports, err := parsePorts(*rawPorts)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-
-	timeout := time.Duration(*timeoutSeconds * float64(time.Second))
-	results := grabBanners(*host, ports, timeout)
-
-	jsonOutput, err := json.Marshal(results)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error generando JSON:", err)
-		os.Exit(1)
-	}
-
-	fmt.Println(string(jsonOutput))
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }

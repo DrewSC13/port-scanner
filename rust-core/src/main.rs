@@ -29,13 +29,19 @@ struct ScanRequest {
     workers: usize,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LegacyPortsRequest {
-    contract_version: u8,
-    record_type: String,
-    ports: Vec<u16>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Invocation {
+    Help,
+    RequestStdin,
 }
+
+const HELP_TEXT: &str = concat!(
+    "Usage: rust-core --request-stdin\n",
+    "\n",
+    "Opciones:\n",
+    "  --request-stdin  Lee una solicitud scan_request v1 completa desde stdin.\n",
+    "  --help           Muestra esta ayuda y termina.\n",
+);
 
 #[derive(Debug, Serialize)]
 struct ScanEvidence {
@@ -67,19 +73,18 @@ struct ScanResult {
     evidence: ScanEvidence,
 }
 
-fn print_error_and_exit(message: &str) -> ! {
+fn print_error_and_exit(message: &str, exit_code: i32) -> ! {
     eprintln!("{message}");
-    process::exit(1);
+    process::exit(exit_code);
 }
 
-fn get_arg_value(args: &[String], key: &str) -> Option<String> {
-    args.windows(2)
-        .find(|window| window[0] == key)
-        .map(|window| window[1].clone())
-}
-
-fn has_arg(args: &[String], key: &str) -> bool {
-    args.iter().any(|argument| argument == key)
+fn parse_invocation(args: &[String]) -> Result<Invocation, String> {
+    match args {
+        [argument] if argument == "--help" => Ok(Invocation::Help),
+        [argument] if argument == "--request-stdin" => Ok(Invocation::RequestStdin),
+        [] => Err("Uso inválido: se requiere --request-stdin o --help".to_string()),
+        _ => Err("Uso inválido: solo se admite --request-stdin o --help".to_string()),
+    }
 }
 
 fn normalize_ports(mut ports: Vec<u16>) -> Result<Vec<u16>, String> {
@@ -92,25 +97,6 @@ fn normalize_ports(mut ports: Vec<u16>) -> Result<Vec<u16>, String> {
         return Err("No se recibieron puertos válidos".to_string());
     }
     Ok(ports)
-}
-
-fn parse_legacy_ports(raw_ports: &str) -> Result<Vec<u16>, String> {
-    let mut ports = Vec::new();
-
-    for item in raw_ports.split(',') {
-        let trimmed = item.trim();
-
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let port = trimmed
-            .parse::<u16>()
-            .map_err(|_| format!("Puerto inválido: {trimmed}"))?;
-        ports.push(port);
-    }
-
-    normalize_ports(ports)
 }
 
 fn validate_contract_header(contract_version: u8, record_type: &str) -> Result<(), String> {
@@ -155,93 +141,12 @@ fn parse_scan_request(raw_request: &str) -> Result<AppConfig, String> {
     })
 }
 
-fn parse_legacy_ports_request(raw_request: &str) -> Result<Vec<u16>, String> {
-    let request: LegacyPortsRequest = serde_json::from_str(raw_request)
-        .map_err(|error| format!("Solicitud JSON de puertos inválida: {error}"))?;
-
-    validate_contract_header(request.contract_version, &request.record_type)?;
-    normalize_ports(request.ports)
-}
-
 fn read_stdin() -> Result<String, String> {
     let mut raw_request = String::new();
     io::stdin()
         .read_to_string(&mut raw_request)
         .map_err(|error| format!("No se pudo leer stdin: {error}"))?;
     Ok(raw_request)
-}
-
-fn parse_args() -> AppConfig {
-    let args: Vec<String> = env::args().collect();
-
-    if has_arg(&args, "--request-stdin") {
-        for incompatible in [
-            "--host",
-            "--ports",
-            "--ports-stdin",
-            "--timeout",
-            "--workers",
-        ] {
-            if has_arg(&args, incompatible) {
-                print_error_and_exit(
-                    "--request-stdin no admite parámetros contractuales por argumentos",
-                );
-            }
-        }
-        let raw_request = read_stdin().unwrap_or_else(|error| print_error_and_exit(&error));
-        return parse_scan_request(&raw_request)
-            .unwrap_or_else(|error| print_error_and_exit(&error));
-    }
-
-    let host = get_arg_value(&args, "--host")
-        .unwrap_or_else(|| print_error_and_exit("Falta argumento requerido: --host"));
-
-    let uses_stdin = has_arg(&args, "--ports-stdin");
-    let legacy_ports = get_arg_value(&args, "--ports");
-    let ports = match (uses_stdin, legacy_ports) {
-        (true, Some(_)) => {
-            print_error_and_exit("--ports-stdin y --ports son alternativas mutuamente excluyentes")
-        }
-        (true, None) => {
-            let raw_request = read_stdin().unwrap_or_else(|error| print_error_and_exit(&error));
-            parse_legacy_ports_request(&raw_request)
-                .unwrap_or_else(|error| print_error_and_exit(&error))
-        }
-        (false, Some(raw_ports)) => {
-            parse_legacy_ports(&raw_ports).unwrap_or_else(|error| print_error_and_exit(&error))
-        }
-        (false, None) => {
-            print_error_and_exit("Falta la entrada de puertos: usa --ports-stdin o --ports")
-        }
-    };
-
-    let timeout = get_arg_value(&args, "--timeout")
-        .unwrap_or_else(|| "2.0".to_string())
-        .parse::<f64>()
-        .unwrap_or_else(|_| print_error_and_exit("Timeout inválido"));
-
-    if !timeout.is_finite() || timeout <= 0.0 {
-        print_error_and_exit("Timeout debe ser mayor a 0");
-    }
-    let timeout_ms = (timeout * 1000.0).round().max(1.0) as u64;
-
-    let requested_workers = get_arg_value(&args, "--workers")
-        .unwrap_or_else(|| "100".to_string())
-        .parse::<usize>()
-        .unwrap_or_else(|_| print_error_and_exit("Workers inválido"));
-
-    if requested_workers == 0 {
-        print_error_and_exit("Workers debe ser mayor a 0");
-    }
-
-    let workers = requested_workers.min(512).min(ports.len().max(1));
-
-    AppConfig {
-        host,
-        ports,
-        timeout_ms,
-        workers,
-    }
 }
 
 fn service_name(port: u16) -> &'static str {
@@ -488,19 +393,30 @@ fn run_scan<W: Write>(config: AppConfig, writer: &mut W) -> Result<(), String> {
 }
 
 fn main() {
-    let config = parse_args();
+    let args: Vec<String> = env::args().skip(1).collect();
+    let invocation =
+        parse_invocation(&args).unwrap_or_else(|error| print_error_and_exit(&error, 2));
+
+    if invocation == Invocation::Help {
+        print!("{HELP_TEXT}");
+        return;
+    }
+
+    let raw_request = read_stdin().unwrap_or_else(|error| print_error_and_exit(&error, 1));
+    let config =
+        parse_scan_request(&raw_request).unwrap_or_else(|error| print_error_and_exit(&error, 1));
     let stdout = io::stdout();
     let mut writer = stdout.lock();
     if let Err(error) = run_scan(config, &mut writer) {
-        print_error_and_exit(&error);
+        print_error_and_exit(&error, 1);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_legacy_ports, parse_scan_request, resolve_socket_addr, write_jsonl_record,
-        ScanEvidence, ScanResult, CONTRACT_VERSION,
+        parse_invocation, parse_scan_request, resolve_socket_addr, write_jsonl_record, Invocation,
+        ScanEvidence, ScanResult, CONTRACT_VERSION, HELP_TEXT,
     };
 
     #[test]
@@ -529,9 +445,48 @@ mod tests {
     }
 
     #[test]
-    fn preserves_legacy_ports_argument_parser() {
-        let ports = parse_legacy_ports("443,80,443").expect("puertos válidos");
-        assert_eq!(ports, vec![80, 443]);
+    fn accepts_only_contractual_process_invocations() {
+        let request_args = vec!["--request-stdin".to_string()];
+        let help_args = vec!["--help".to_string()];
+
+        assert_eq!(
+            parse_invocation(&request_args).expect("invocación contractual"),
+            Invocation::RequestStdin,
+        );
+        assert_eq!(
+            parse_invocation(&help_args).expect("invocación informativa"),
+            Invocation::Help,
+        );
+
+        for invalid in [
+            vec![],
+            vec!["--host".to_string(), "127.0.0.1".to_string()],
+            vec!["--ports".to_string(), "80".to_string()],
+            vec!["--ports-stdin".to_string()],
+            vec!["--timeout".to_string(), "1".to_string()],
+            vec!["--workers".to_string(), "1".to_string()],
+            vec!["--unknown".to_string()],
+            vec!["positional".to_string()],
+            vec!["-request-stdin".to_string()],
+            vec!["--request-stdin".to_string(), "--help".to_string()],
+        ] {
+            assert!(parse_invocation(&invalid).is_err(), "aceptó {invalid:?}");
+        }
+    }
+
+    #[test]
+    fn help_exposes_only_the_contractual_process_surface() {
+        assert!(HELP_TEXT.contains("Usage: rust-core --request-stdin"));
+        assert!(HELP_TEXT.contains("--help"));
+        for historical in [
+            "--host",
+            "--ports",
+            "--ports-stdin",
+            "--timeout",
+            "--workers",
+        ] {
+            assert!(!HELP_TEXT.contains(historical));
+        }
     }
 
     #[test]

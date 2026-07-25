@@ -47,6 +47,36 @@ these invariants:
 - There is no silent fallback to the internal Python implementations.
 - CLI, TUI, and reports must continue to expose the effective engine metadata.
 
+## Native process interface
+
+The native binaries accept exactly one operational process interface:
+
+```text
+rust-core --request-stdin
+go-banner --request-stdin
+```
+
+`--help` is the only additional informational operation. Historical options,
+unknown options, positional arguments, an empty invocation, and any mixed
+invocation must exit with code `2` before reading standard input or starting
+network activity. Contract or execution failures use code `1`; successful
+contract execution and help use code `0`.
+
+Native protocol rules:
+
+- the complete v1 request travels through `stdin`;
+- `stdout` contains only JSONL contract records during execution;
+- diagnostics are written only to `stderr`;
+- the Python bridges must invoke native binaries with the exact argument vector
+  `["--request-stdin"]`;
+- Rust must retain incremental `port_result` streaming and per-record flushing;
+- Go must emit one `banner_result` JSONL record for every requested port;
+- no historical aggregate JSON output or fragmented argument contract may be
+  reintroduced.
+
+Any process-interface change requires direct Rust and Go tests plus the native
+surface checks in `scripts/test_all.sh`.
+
 ## Development setup
 
 Required toolchains:
