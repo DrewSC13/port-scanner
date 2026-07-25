@@ -1,46 +1,36 @@
 # Security Policy
 
 CicadaPort is intended only for systems you own or are explicitly authorized
-to assess. Multi-target CLI and TUI sessions do not change that requirement:
-every expanded address, range, CIDR entry, and target-file record must remain
-inside the authorized scope.
+to assess. Every expanded target, range, CIDR entry and target-file record
+must remain inside the authorized scope.
 
 ## Supported versions
 
-The project is currently under active development and has not yet declared a
-production-ready release.
+CicadaPort `3.0.0-rc.1` is a release candidate, not a production-ready
+release. Verified support is limited to Linux x86_64 on Ubuntu 22.04 and
+Ubuntu 24.04 with Python 3.10 through 3.13.
 
-| Version | Security fixes |
-| --- | --- |
-| `main` | Yes |
-| Earlier commits, forks, or unmaintained releases | No |
+| Version | Security fixes | Release state |
+| --- | --- | --- |
+| `main` | Yes | Active development |
+| `3.0.0-rc.1` | Yes while current | Prerelease |
+| Earlier commits or unmaintained releases | No | Unsupported |
+
+Windows, macOS, ARM64 and Python 3.14 are not supported by RC1.
 
 ## Reporting a vulnerability
 
-Do not disclose a suspected vulnerability in a public issue, discussion, pull
-request, or proof-of-concept repository.
+Do not disclose a suspected vulnerability in a public issue, discussion,
+pull request or proof-of-concept repository. Use GitHub private vulnerability
+reporting when available and include the affected commit/version, component,
+authorized reproduction, impact and sanitized proof of concept.
 
-Use GitHub's private vulnerability reporting for this repository when it is
-available. Include:
-
-- the affected commit or version;
-- the affected component: Python, Rust, Go, Bash, packaging, or CI;
-- reproducible steps using only local or explicitly authorized targets;
-- the security impact and expected behavior;
-- a minimal proof of concept with secrets and personal data removed.
-
-If private vulnerability reporting is unavailable, open a public issue that
-only requests a private contact channel. Do not include vulnerability details
-in that issue.
-
-Reports will be assessed before a disclosure or release date is agreed. Please
-allow maintainers a reasonable opportunity to investigate and correct the
-problem before public disclosure.
+If private reporting is unavailable, open a public issue requesting a private
+contact channel without including vulnerability details.
 
 ## Out of scope
 
-- scanning one or many third-party systems without explicit authorization;
-- social engineering, denial of service, or destructive testing;
-- reports that only show an outdated dependency without a reachable impact;
-- vulnerabilities in an operating system or external service not caused by
-  CicadaPort.
+- unauthorized third-party scanning;
+- social engineering, denial of service or destructive testing;
+- dependency-version reports without reachable impact;
+- flaws in external systems not caused by CicadaPort.

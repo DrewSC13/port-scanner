@@ -13,6 +13,7 @@ from typing import Any, Callable, Dict, IO, List, Optional
 
 from src.contracts import NativeScanRequest
 from src.errors import ScanCancelledError
+from src.native import resolve_native_binary
 from src.scanner import ScanResult
 
 ResultCallback = Callable[[Dict[str, Any]], None]
@@ -44,12 +45,9 @@ class RustScannerBridge:
     _EVIDENCE_OPTIONAL_FIELDS = {"detail", "errno"}
 
     def __init__(self, binary_path: str | None = None) -> None:
-        project_root = Path(__file__).resolve().parent.parent
-
-        self.binary_path = (
-            Path(binary_path)
-            if binary_path
-            else project_root / "rust-core" / "target" / "release" / "rust-core"
+        self.binary_path = resolve_native_binary(
+            "rust",
+            explicit_path=binary_path,
         )
 
     def is_available(self) -> bool:
@@ -294,8 +292,8 @@ class RustScannerBridge:
         if not self.is_available():
             raise FileNotFoundError(
                 f"Binario Rust no encontrado: {self.binary_path}. "
-                "Ejecuta ./scripts/build_all.sh; el flujo especializado "
-                "no utilizará fallback Python."
+                "Reinstala el artefacto Linux x86_64 o, en desarrollo, "
+                "ejecuta ./scripts/build_all.sh; no se utilizará fallback Python."
             )
 
         normalized_ports = self._normalize_ports(ports)

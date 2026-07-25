@@ -81,10 +81,10 @@ surface checks in `scripts/test_all.sh`.
 
 Required toolchains:
 
-- Python 3.10 or newer;
-- stable Rust with `rustfmt` and Clippy;
-- the Go version declared in `go-banner/go.mod`;
-- Bash and ShellCheck.
+- Python 3.10, 3.11, 3.12 or 3.13;
+- Rust 1.97.1 with `rustfmt` and Clippy;
+- Go 1.26.5;
+- Linux x86_64, Bash and ShellCheck.
 
 Create a virtual environment and install development dependencies:
 
@@ -92,7 +92,7 @@ Create a virtual environment and install development dependencies:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 ```
 
 Build the native engines:
@@ -106,7 +106,19 @@ Build the native engines:
 Before every commit, run:
 
 ```bash
+./scripts/build_all.sh
 ./scripts/test_all.sh
+bash -n scripts/*.sh
+shellcheck scripts/*.sh
+```
+
+Release-candidate changes additionally require:
+
+```bash
+python -m pip install -r requirements-release.txt
+./scripts/build_release_artifacts.sh
+./scripts/test_release_artifacts.sh dist
+./scripts/audit_dependencies.sh
 ```
 
 The full local validation must cover Python, Rust, Go, Bash, the bridges, the

@@ -25,6 +25,7 @@ from src.presentation import ConsolePresenter
 from src.profiles import SCAN_PROFILES, resolve_scan_options
 from src.scanner import PortScanner, ScanResult
 from src.targets import TargetParseError, TargetParser
+from src.version import __version__
 
 
 class PortScannerCLI:
@@ -194,7 +195,7 @@ class PortScannerCLI:
         parser.add_argument(
             "--version",
             action="version",
-            version="CicadaPort 2.2.0",
+            version=f"CicadaPort {__version__}",
         )
         return parser
 
@@ -333,7 +334,9 @@ class PortScannerCLI:
         rust_bridge = RustScannerBridge()
         if not rust_bridge.is_available():
             raise FileNotFoundError(
-                "No se encontró el binario Rust. " "Ejecuta ./scripts/build_all.sh."
+                "No se encontró el binario Rust obligatorio. Reinstala el "
+                "artefacto Linux x86_64 o, en desarrollo, ejecuta "
+                "./scripts/build_all.sh."
             )
 
         ports = self._get_ports_to_scan(args)
@@ -449,7 +452,9 @@ class PortScannerCLI:
         go_bridge = GoBannerBridge()
         if not go_bridge.is_available():
             raise FileNotFoundError(
-                "No se encontró el binario Go. " "Ejecuta ./scripts/build_all.sh."
+                "No se encontró el binario Go obligatorio. Reinstala el "
+                "artefacto Linux x86_64 o, en desarrollo, ejecuta "
+                "./scripts/build_all.sh."
             )
         raw_banners = go_bridge.grab_banners(
             host=host_ip,

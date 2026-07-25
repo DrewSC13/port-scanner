@@ -67,8 +67,8 @@ probada.
 | `DT-02` | Invocación nativa histórica mediante `--host`, `--ports` y variantes heredadas. | El contrato `CINV-CICADAPORT-3.2.9-001` aprobó retirar las rutas históricas y consolidar `--request-stdin` como única interfaz operativa; `--help` permanece como operación informativa. | Implementación en el Subhito 3.2.9; el cierre exige códigos `0/1/2`, rechazo previo a `stdin` y red, CI verde y la etiqueta firmada `subhito-3.2.9`. |
 | `DT-03` | Implementaciones Python de escaneo y banners. | Decisión aprobada en `CCR-CICADAPORT-3.2.10-001`: `ScanResult` y el ciclo externo permanecen como núcleo; TCP, UDP y banners Python se conservan como referencia interna, pruebas y paridad. | Implementar sin selección pública, fallback, deprecación ni retirada en `2.2.0`. |
 | `DT-04` | Proyección temporal `is_open`. | Decisión aprobada en `CCR-CICADAPORT-3.2.10-001`: permanece el contrato v1; `state` es la fuente de verdad e `is_open` su proyección derivada. | Centralizar invariantes, migrar consumidores internos a `state` y preservar el campo persistido. |
-| `DT-05` | Versionado de aplicación y estado de release. | La aplicación declara `2.2.0`, mientras la política de seguridad indica que aún no existe una release lista para producción. | Definir SemVer, changelog, release candidate y soporte de artefactos. |
-| `DT-06` | Matriz de plataformas declarada. | La documentación menciona Linux, Windows y macOS; el cierre exige evidencia reproducible de las plataformas realmente soportadas. | Formalizar la matriz de soporte y sus comprobaciones mínimas. |
+| `DT-05` | Versionado de aplicación y estado de release. | Decisión aprobada en `CRC-CICADAPORT-3.2.11-001`: SemVer, `3.0.0rc1`/`3.0.0-rc.1`, fuente única y changelog. | Implementar y validar sin publicar todavía la prerelease. |
+| `DT-06` | Matriz de plataformas declarada. | Decisión aprobada en `CRC-CICADAPORT-3.2.11-001`: Linux x86_64, Ubuntu 22.04/24.04, Python 3.10-3.13, Rust 1.97.1 y Go 1.26.5. | Windows, macOS, ARM64 y Python 3.14 quedan no soportados en RC1. |
 
 ## Secuencia restante del Hito 3
 
@@ -154,9 +154,10 @@ El Subhito 3.2.10 permanece bloqueado hasta que Git demuestre el estado
 
 ### Subhito 3.2.10 — Estabilización del contrato canónico de resultados
 
-**Estado:** `IN_IMPLEMENTATION`
+**Estado:** `CLOSED_FROZEN`
 **Dependencia:** 3.2.9 `CLOSED_FROZEN`.
 **Contrato aprobado:** `CCR-CICADAPORT-3.2.10-001`, versión `1.0-CANDIDATA`.
+**Cierre:** `main@5229329b05a354be953cd885ca46ea0a84b7cada`, etiqueta firmada `subhito-3.2.10`, objeto `05fc501745bcf203941ab591738e388de93cf454`.
 **Base autorizada:** `main@a0bb081a0b8b1d14ff5432d469e68780b8813142`.
 
 Decisiones autorizadas:
@@ -177,19 +178,19 @@ etiquetado, apertura de 3.2.11, apertura de 3.2.12 ni inicio del Hito 4.
 
 ### Subhito 3.2.11 — Preparación de release candidate y soporte verificable
 
-**Estado:** `DEFINED`
+**Estado:** `IN_IMPLEMENTATION`
 **Dependencia:** 3.2.10 `CLOSED_FROZEN`.
+**Contrato aprobado:** `CRC-CICADAPORT-3.2.11-001`, versión `1.0-CANDIDATA`.
+**Base:** `main@5229329b05a354be953cd885ca46ea0a84b7cada`.
 
-Objetivo:
+Decisiones autorizadas:
 
-- resolver `DT-05` y `DT-06`;
-- unificar la versión declarada por CLI, empaquetado y documentación;
-- adoptar una política SemVer y un changelog;
-- definir la matriz real de plataformas y versiones de Python;
-- verificar wheel, source distribution, binarios nativos, instalación aislada,
-  política de seguridad y documentación de uso;
-- establecer los criterios de una release candidate sin declarar producción
-  antes de superar la puerta de salida.
+- SemVer `3.0.0-rc.1` (`3.0.0rc1` en Python) con fuente única;
+- contratos JSONL v1 preservados;
+- soporte RC1 limitado a Linux x86_64, Ubuntu 22.04/24.04 y Python 3.10-3.13;
+- Rust 1.97.1 y Go 1.26.5;
+- wheel nativo, sdist, hashes, inventario e instalación aislada;
+- sin etiquetas o prerelease durante la implementación local.
 
 ### Subhito 3.2.12 — Auditoría de cierre y congelamiento del Hito 3
 
@@ -272,9 +273,10 @@ Arquitecto del Proyecto.
 
 ## Siguiente acción formal
 
-La única acción habilitada es implementar y validar localmente el Subhito 3.2.10
-bajo `CCR-CICADAPORT-3.2.10-001`, en la rama técnica autorizada y sin staging,
-commit, push, integración o etiquetado.
+La única acción habilitada es implementar y validar localmente el Subhito 3.2.11
+bajo `CRC-CICADAPORT-3.2.11-001`, en la rama
+`feat/subhito-3.2.11-release-candidate-support`, sin staging, commit, push,
+integración, etiquetas ni publicación de prerelease.
 
-Los Subhitos 3.2.11 y 3.2.12 permanecen `DEFINED` y bloqueados por dependencia.
-El Hito 4 permanece `BLOCKED` y `NOT_STARTED`.
+El Subhito 3.2.12 permanece bloqueado. El Hito 4 permanece `BLOCKED` y
+`NOT_STARTED`.

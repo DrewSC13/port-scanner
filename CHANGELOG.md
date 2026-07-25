@@ -1,0 +1,42 @@
+# Changelog
+
+All notable changes to CicadaPort are documented in this file. The format
+follows Keep a Changelog and the application uses Semantic Versioning.
+Python distribution versions use the equivalent PEP 440 spelling.
+
+## [Unreleased]
+
+No changes have been authorized after the first release candidate.
+
+## [3.0.0-rc.1] - Unreleased
+
+### Added
+
+- A single application-version source in `src/version.py`.
+- Linux x86_64 wheels containing the mandatory Rust and Go engines.
+- Source distributions containing Python, Rust and Go sources.
+- Isolated wheel/sdist installation and loopback execution checks.
+- A support matrix for Ubuntu 22.04/24.04 and Python 3.10-3.13.
+- SHA-256 manifests and a component inventory for candidate artifacts.
+
+### Changed
+
+- Packaging metadata is declared in `pyproject.toml`.
+- Native bridges resolve installed binaries before checkout build paths.
+- Rust is fixed at 1.97.1 and Go at 1.26.5 for RC1.
+- The application version advances to `3.0.0-rc.1` (`3.0.0rc1` in Python).
+
+### Removed
+
+- `Production/Stable` and `OS Independent` package declarations.
+- Unverified Windows, macOS, ARM64 and Python 3.14 support claims.
+
+### Security
+
+- Dependency-audit commands cover Python, Rust and Go.
+- Network validation remains restricted to loopback or authorized scope.
+
+## Historical technical baselines
+
+Signed `subhito-*` tags are governance and engineering-freeze references;
+they are distinct from user-facing release tags.

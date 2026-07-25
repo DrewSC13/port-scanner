@@ -1,12 +1,29 @@
 # CicadaPort
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
+![Python](https://img.shields.io/badge/Python-3.10--3.13-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
-![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey.svg)
+![Platform](https://img.shields.io/badge/Platform-Linux%20x86_64-lightgrey.svg)\n![Release](https://img.shields.io/badge/Release-3.0.0--rc.1-orange.svg)
 
 Escáner de puertos con arquitectura especializada para auditorías de seguridad
 autorizadas: Python orquesta la sesión, Rust ejecuta el escaneo TCP y Go captura
 los banners solicitados.
+
+## Release candidate y soporte verificable
+
+CicadaPort `3.0.0-rc.1` (`3.0.0rc1` en metadatos Python) es una
+prerelease, no una declaración de producción. RC1 está soportada únicamente en
+Linux x86_64, Ubuntu 22.04/24.04 y Python 3.10-3.13. Windows, macOS, ARM64 y
+Python 3.14 permanecen no soportados. Rust 1.97.1 y Go 1.26.5 son las
+toolchains fijadas; los contratos JSONL permanecen en versión 1.
+
+El wheel Linux contiene los motores obligatorios Rust y Go. La construcción y
+prueba aislada de wheel/sdist se ejecuta con:
+
+```bash
+python -m pip install -r requirements-release.txt
+./scripts/build_release_artifacts.sh
+./scripts/test_release_artifacts.sh dist
+```
 
 ## Características Principales
 

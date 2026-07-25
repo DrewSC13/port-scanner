@@ -9,18 +9,16 @@ from typing import Any, Dict, List, Optional
 
 from src.contracts import NativeBannerRequest, NativeBannerResult
 from src.errors import ScanCancelledError
+from src.native import resolve_native_binary
 
 
 class GoBannerBridge:
     """Puente entre Python y el motor Go."""
 
     def __init__(self, binary_path: str | None = None) -> None:
-        project_root = Path(__file__).resolve().parent.parent
-
-        self.binary_path = (
-            Path(binary_path)
-            if binary_path
-            else project_root / "go-banner" / "go-banner"
+        self.binary_path = resolve_native_binary(
+            "go",
+            explicit_path=binary_path,
         )
 
     def is_available(self) -> bool:
@@ -69,8 +67,8 @@ class GoBannerBridge:
         if not self.is_available():
             raise FileNotFoundError(
                 f"Binario Go no encontrado: {self.binary_path}. "
-                "Ejecuta ./scripts/build_all.sh; el flujo especializado "
-                "no utilizará fallback Python."
+                "Reinstala el artefacto Linux x86_64 o, en desarrollo, "
+                "ejecuta ./scripts/build_all.sh; no se utilizará fallback Python."
             )
 
         request = NativeBannerRequest.from_seconds(

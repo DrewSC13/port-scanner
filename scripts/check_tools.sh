@@ -1,58 +1,36 @@
 #!/usr/bin/env bash
+set -Eeuo pipefail
 
-echo "======================================"
-echo " CicadaPort - Verificación"
-echo " Python orchestrator + Rust scan + Go banners"
-echo "======================================"
-echo ""
+missing=0
+for command_name in python3 cargo rustup go; do
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    echo "[FALTA] $command_name" >&2
+    missing=1
+  fi
+done
+(( missing == 0 )) || exit 1
 
-check_command_version() {
-    local command_name="$1"
-    local version_command="$2"
+python_version="$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')"
+case "$python_version" in
+  3.10|3.11|3.12|3.13) ;;
+  *)
+    echo "[FALLO] Python soportado: 3.10-3.13; detectado: $python_version" >&2
+    exit 1
+    ;;
+esac
 
-    if command -v "$command_name" >/dev/null 2>&1; then
-        echo "[OK] $command_name encontrado: $($version_command 2>/dev/null | head -n 1)"
-    else
-        echo "[ERROR] $command_name no encontrado"
-    fi
+rust_version="$(rustup run 1.97.1 rustc --version)"
+[[ "$rust_version " == "rustc 1.97.1 "* ]] || {
+  echo "[FALLO] Rust 1.97.1 requerido; detectado: $rust_version" >&2
+  exit 1
 }
 
-echo "[1] Sistema"
-echo "Usuario: $(whoami)"
-echo "Directorio actual: $(pwd)"
-echo ""
+go_version="$(go version)"
+[[ " $go_version " == *" go1.26.5 "* ]] || {
+  echo "[FALLO] Go 1.26.5 requerido; detectado: $go_version" >&2
+  exit 1
+}
 
-echo "[2] Python"
-check_command_version "python3" "python3 --version"
-check_command_version "pip3" "pip3 --version"
-echo ""
-
-echo "[3] Entorno virtual"
-if [ -n "$VIRTUAL_ENV" ]; then
-    echo "[OK] Entorno virtual activo: $VIRTUAL_ENV"
-else
-    echo "[WARN] No hay entorno virtual activo"
-    echo "   Actívalo con: source venv/bin/activate"
-fi
-echo ""
-
-echo "[4] Git"
-check_command_version "git" "git --version"
-echo ""
-
-echo "[5] Rust"
-check_command_version "rustc" "rustc --version"
-check_command_version "cargo" "cargo --version"
-echo ""
-
-echo "[6] Go"
-check_command_version "go" "go version"
-echo ""
-
-echo "[7] Pytest"
-check_command_version "pytest" "pytest --version"
-echo ""
-
-echo "======================================"
-echo " Verificación de herramientas finalizada"
-echo "======================================"
+echo "Python: $python_version"
+echo "Rust: $rust_version"
+echo "Go: $go_version"

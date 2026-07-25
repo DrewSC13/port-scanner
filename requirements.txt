@@ -1,12 +1,2 @@
-# CicadaPort - Dependencias de desarrollo y testing
-
-pytest>=6.0
-pytest-cov>=2.0
-black>=21.0
-flake8>=3.9
-mypy>=0.900
-textual>=0.80
-
-# Opcional: Para futuras características
-requests>=2.25
-beautifulsoup4>=4.9
+# Dependencias de ejecución para CicadaPort RC1.
+textual>=0.80,<9

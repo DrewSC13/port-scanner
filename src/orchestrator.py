@@ -353,7 +353,8 @@ class ScanOrchestrator:
             unavailable = ", ".join(missing)
             raise SpecializedFlowError(
                 "El flujo especializado no puede iniciarse; faltan motores "
-                f"obligatorios: {unavailable}. Ejecuta ./scripts/build_all.sh. "
+                f"obligatorios: {unavailable}. Reinstala el artefacto Linux "
+                "x86_64 o, en desarrollo, ejecuta ./scripts/build_all.sh. "
                 "No se utilizará fallback Python."
             )
 
@@ -383,9 +384,9 @@ class ScanOrchestrator:
         rust_bridge = RustScannerBridge()
         if not rust_bridge.is_available():
             raise FileNotFoundError(
-                "No se encontró el binario Rust en "
-                "rust-core/target/release/rust-core. "
-                "Ejecuta ./scripts/build_all.sh."
+                f"No se encontró el binario Rust obligatorio en {rust_bridge.binary_path}. "
+                "Reinstala el artefacto Linux x86_64 o ejecuta "
+                "./scripts/build_all.sh en desarrollo."
             )
 
         ports = self._get_ports_to_scan(request)
@@ -489,8 +490,9 @@ class ScanOrchestrator:
         go_bridge = GoBannerBridge()
         if not go_bridge.is_available():
             raise FileNotFoundError(
-                "No se encontró el binario Go en go-banner/go-banner. "
-                "Ejecuta ./scripts/build_all.sh."
+                f"No se encontró el binario Go obligatorio en {go_bridge.binary_path}. "
+                "Reinstala el artefacto Linux x86_64 o ejecuta "
+                "./scripts/build_all.sh en desarrollo."
             )
 
         raw_banners = go_bridge.grab_banners(

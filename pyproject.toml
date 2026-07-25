@@ -1,3 +1,48 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=80,<82", "wheel>=0.45,<1"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "portscanner-pro"
+dynamic = ["version"]
+description = "CicadaPort: reconocimiento TCP especializado para auditorías autorizadas"
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.10,<3.14"
+license = "MIT"
+license-files = ["LICENSE.md"]
+authors = [{ name = "DrewSC13", email = "drew_13_@outlook.com" }]
+keywords = ["security", "networking", "port-scanner", "rust", "go"]
+dependencies = ["textual>=0.80,<9"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Information Technology",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: System :: Networking",
+]
+
+[project.urls]
+Homepage = "https://github.com/DrewSC13/port-scanner"
+Repository = "https://github.com/DrewSC13/port-scanner"
+Issues = "https://github.com/DrewSC13/port-scanner/issues"
+Changelog = "https://github.com/DrewSC13/port-scanner/blob/main/CHANGELOG.md"
+Security = "https://github.com/DrewSC13/port-scanner/blob/main/SECURITY.md"
+
+[project.scripts]
+cicadaport = "main:main"
+portscanner = "main:main"
+
+[tool.setuptools]
+py-modules = ["config", "main"]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["src", "src.*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "src.version.__version__" }

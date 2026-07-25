@@ -1,31 +1,24 @@
 #!/usr/bin/env bash
+set -Eeuo pipefail
 
-set -e
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
 
 echo "======================================"
 echo " CicadaPort - Build All"
 echo " Python orchestrator + Rust scan + Go banners"
 echo "======================================"
-echo ""
 
 echo "[1] Verificando herramientas..."
 ./scripts/check_tools.sh
 
-echo ""
-echo "[2] Compilando motor Rust..."
-cargo build --release --manifest-path rust-core/Cargo.toml
+echo "[2] Compilando motor Rust con 1.97.1..."
+cargo +1.97.1 build --release --locked --manifest-path rust-core/Cargo.toml
 
-echo ""
-echo "[3] Compilando motor Go..."
-cd go-banner
-go build -o go-banner
-cd ..
+echo "[3] Compilando motor Go con 1.26.5..."
+(
+  cd go-banner
+  CGO_ENABLED=0 go build -trimpath -o go-banner .
+)
 
-echo ""
-echo "======================================"
-echo " Build completado correctamente"
-echo "======================================"
-echo ""
-echo "Binarios generados:"
-echo "  Rust: rust-core/target/release/rust-core"
-echo "  Go:   go-banner/go-banner"
+echo "Build completado correctamente"

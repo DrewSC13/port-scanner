@@ -1,0 +1,4 @@
+build>=1.2,<2
+twine>=6,<7
+wheel>=0.45,<1
+pip-audit>=2.9,<3
