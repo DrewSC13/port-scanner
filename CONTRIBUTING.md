@@ -141,7 +141,10 @@ Run the Go commands from `go-banner/`.
 - Cancellation must propagate to Python workers and native subprocesses.
 - `PortScanner.results` contains one internal result for every requested port.
 - Internal results may be open, closed, or filtered.
-- Reportable results contain only entries where `is_open is True`.
+- Reportable results contain only entries where `state is PortState.OPEN`.
+- `is_open` remains serialized in contract v1 only as the exact compatibility
+  projection derived from `state`; runtime decisions must not treat it as an
+  independent source of truth.
 - TXT, JSON, CSV, and HTML must apply the same reportable filter.
 - Every CLI scan must display the complete ordered reportable result set.
 - Automatic reports must be stored under `reports/` unless the user selects

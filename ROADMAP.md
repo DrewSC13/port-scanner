@@ -65,8 +65,8 @@ probada.
 | --- | --- | --- | --- |
 | `DT-01` | `--engine`, `--banner-engine` y los alias de selección. | Resuelto en el Subhito 3.2.8: la CLI no expone selectores, Rust y Go permanecen como invariantes internas y las opciones históricas terminan con código `2` antes de actividad de red. | Cerrado y congelado mediante `subhito-3.2.8` sobre `f69c0bfc0e48ac84845c5c556561bc02e3f5b7d1`. |
 | `DT-02` | Invocación nativa histórica mediante `--host`, `--ports` y variantes heredadas. | El contrato `CINV-CICADAPORT-3.2.9-001` aprobó retirar las rutas históricas y consolidar `--request-stdin` como única interfaz operativa; `--help` permanece como operación informativa. | Implementación en el Subhito 3.2.9; el cierre exige códigos `0/1/2`, rechazo previo a `stdin` y red, CI verde y la etiqueta firmada `subhito-3.2.9`. |
-| `DT-03` | Implementaciones Python de escaneo y banners. | Permanecen como referencia interna y soporte de pruebas, sin selección pública. | Definir si se conservan, se aíslan como fixtures o se retiran en una versión mayor. |
-| `DT-04` | Proyección temporal `is_open`. | El contrato canónico usa estados y evidencia, pero mantiene `is_open` para consumidores anteriores. | Establecer política de compatibilidad, migración y versionado contractual. |
+| `DT-03` | Implementaciones Python de escaneo y banners. | Decisión aprobada en `CCR-CICADAPORT-3.2.10-001`: `ScanResult` y el ciclo externo permanecen como núcleo; TCP, UDP y banners Python se conservan como referencia interna, pruebas y paridad. | Implementar sin selección pública, fallback, deprecación ni retirada en `2.2.0`. |
+| `DT-04` | Proyección temporal `is_open`. | Decisión aprobada en `CCR-CICADAPORT-3.2.10-001`: permanece el contrato v1; `state` es la fuente de verdad e `is_open` su proyección derivada. | Centralizar invariantes, migrar consumidores internos a `state` y preservar el campo persistido. |
 | `DT-05` | Versionado de aplicación y estado de release. | La aplicación declara `2.2.0`, mientras la política de seguridad indica que aún no existe una release lista para producción. | Definir SemVer, changelog, release candidate y soporte de artefactos. |
 | `DT-06` | Matriz de plataformas declarada. | La documentación menciona Linux, Windows y macOS; el cierre exige evidencia reproducible de las plataformas realmente soportadas. | Formalizar la matriz de soporte y sus comprobaciones mínimas. |
 
@@ -154,21 +154,26 @@ El Subhito 3.2.10 permanece bloqueado hasta que Git demuestre el estado
 
 ### Subhito 3.2.10 — Estabilización del contrato canónico de resultados
 
-**Estado:** `DEFINED`
+**Estado:** `IN_IMPLEMENTATION`
 **Dependencia:** 3.2.9 `CLOSED_FROZEN`.
+**Contrato aprobado:** `CCR-CICADAPORT-3.2.10-001`, versión `1.0-CANDIDATA`.
+**Base autorizada:** `main@a0bb081a0b8b1d14ff5432d469e68780b8813142`.
 
-Objetivo:
+Decisiones autorizadas:
 
-- resolver `DT-03` y `DT-04`;
-- definir el papel definitivo de las implementaciones Python internas;
-- estabilizar estados, razones, evidencia y proyecciones de compatibilidad;
-- decidir si el contrato v1 permanece vigente o requiere una migración
-  versionada;
-- preservar la lectura de reportes y contratos soportados durante cualquier
-  transición aprobada.
+- conservar `ScanResult` y el ciclo de resultados externos como núcleo de
+  producción;
+- conservar TCP, UDP y banners Python como referencia interna, pruebas y
+  paridad, sin selección pública ni fallback;
+- mantener el contrato v1 y la versión de aplicación `2.2.0`;
+- declarar `state` como fuente de verdad del estado;
+- declarar `evidence.reason` como fuente de verdad de la razón;
+- mantener `reason` e `is_open` como proyecciones obligatorias;
+- decidir reportabilidad únicamente mediante `state == open`;
+- preservar JSONL, reportes y contratos soportados.
 
-No se presupone un contrato v2 ni la eliminación de `is_open`; ambas decisiones
-deben surgir del contrato provisional y de una matriz de compatibilidad.
+La implementación no autoriza todavía staging, commit, push, integración,
+etiquetado, apertura de 3.2.11, apertura de 3.2.12 ni inicio del Hito 4.
 
 ### Subhito 3.2.11 — Preparación de release candidate y soporte verificable
 
@@ -267,9 +272,9 @@ Arquitecto del Proyecto.
 
 ## Siguiente acción formal
 
-La única acción habilitada es completar, validar e integrar el Subhito 3.2.8
-bajo `CIPE-CICADAPORT-3.2.8-001`. Su cierre exige CI verde y la etiqueta firmada
-`subhito-3.2.8`.
+La única acción habilitada es implementar y validar localmente el Subhito 3.2.10
+bajo `CCR-CICADAPORT-3.2.10-001`, en la rama técnica autorizada y sin staging,
+commit, push, integración o etiquetado.
 
-El Subhito 3.2.9 permanece `DEFINED` y no está autorizado. No debe iniciarse
-mientras el Subhito 3.2.8 no esté materialmente `CLOSED_FROZEN`.
+Los Subhitos 3.2.11 y 3.2.12 permanecen `DEFINED` y bloqueados por dependencia.
+El Hito 4 permanece `BLOCKED` y `NOT_STARTED`.

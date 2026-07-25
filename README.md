@@ -34,8 +34,9 @@ contrato provisional y una aprobación expresa.
 ## Contratos avanzados de objetivos y evidencia
 
 El núcleo define un contrato versionado independiente de la interfaz. Cada
-resultado de puerto conserva temporalmente `is_open` para compatibilidad, pero
-también registra:
+resultado de puerto conserva `is_open` como proyección derivada de compatibilidad
+del estado canónico. `state` es la fuente de verdad, `evidence.reason` sustenta
+la razón y el campo superior `reason` debe coincidir con ella. Además registra:
 
 - estado canónico `open`, `closed`, `filtered`, `unfiltered`,
   `open|filtered` o `closed|filtered`;
