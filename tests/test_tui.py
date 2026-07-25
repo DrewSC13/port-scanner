@@ -28,9 +28,9 @@ def build_request(**overrides):
         "common_ports": False,
         "threads": 100,
         "timeout": 2.0,
-        "engine": "auto",
+        "engine": "rust",
         "banner_grab": True,
-        "banner_engine": "auto",
+        "banner_engine": "go",
         "report_format": "text",
         "profile": "standard",
     }
@@ -144,8 +144,6 @@ class TestCicadaPortTui(unittest.IsolatedAsyncioTestCase):
             ports="20-443",
             threads=48,
             timeout=1.25,
-            engine="python",
-            banner_engine="go",
             report_format="json",
             profile="custom",
         )
@@ -156,7 +154,7 @@ class TestCicadaPortTui(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app._template.ports, "20-443")
             self.assertEqual(app._template.threads, 48)
             self.assertEqual(app._template.timeout, 1.25)
-            self.assertEqual(app._template.engine, "python")
+            self.assertEqual(app._template.engine, "rust")
             self.assertEqual(app._template.banner_engine, "go")
             self.assertEqual(app._effective_scan_engine, "rust")
             self.assertEqual(app._effective_banner_engine, "go")
@@ -375,8 +373,6 @@ class TestCliToTuiFlow(unittest.TestCase):
                 "localhost",
                 "--profile",
                 "deep",
-                "--engine",
-                "auto",
                 "--format",
                 "json",
                 "--tui",
@@ -395,7 +391,7 @@ class TestCliToTuiFlow(unittest.TestCase):
         self.assertEqual(request.host, "localhost")
         self.assertEqual(request.profile, "deep")
         self.assertEqual(request.ports, "1-65535")
-        self.assertEqual(request.engine, "auto")
+        self.assertEqual(request.engine, "rust")
         self.assertEqual(request.report_format, "json")
 
     def test_cli_forwards_expanded_multi_target_request_to_tui(self):

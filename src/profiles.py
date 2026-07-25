@@ -103,11 +103,9 @@ def resolve_scan_options(
     common_ports: Optional[bool] = None,
     threads: Optional[int] = None,
     timeout: Optional[float] = None,
-    engine: Optional[str] = None,
     banner_grab: Optional[bool] = None,
-    banner_engine: Optional[str] = None,
 ) -> ResolvedScanOptions:
-    """Combina un perfil con ajustes explícitos sin cambiar la CLI histórica."""
+    """Combina un perfil con los ajustes públicos permitidos."""
     profile = get_scan_profile(profile_name)
 
     resolved_common_ports = (
@@ -122,7 +120,7 @@ def resolve_scan_options(
         common_ports=resolved_common_ports,
         threads=threads if threads is not None else profile.threads,
         timeout=timeout if timeout is not None else profile.timeout,
-        engine=engine or profile.engine,
+        engine=profile.engine,
         banner_grab=(profile.banner_grab if banner_grab is None else banner_grab),
-        banner_engine=banner_engine or profile.banner_engine,
+        banner_engine=profile.banner_engine,
     )

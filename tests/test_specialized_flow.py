@@ -1,4 +1,7 @@
+from contextlib import redirect_stderr
+import io
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -22,53 +25,82 @@ class TestSpecializedEngineSelection(unittest.TestCase):
         self.assertEqual(request.engine, MANDATORY_SCAN_ENGINE)
         self.assertEqual(request.banner_engine, MANDATORY_BANNER_ENGINE)
 
-    def test_auto_resolves_without_fallback(self):
+    def test_only_canonical_programmatic_engines_are_accepted(self):
         self.assertEqual(
-            ScanOrchestrator._resolve_scan_engine("auto"),
+            ScanOrchestrator._resolve_scan_engine(MANDATORY_SCAN_ENGINE),
             MANDATORY_SCAN_ENGINE,
         )
         self.assertEqual(
-            ScanOrchestrator._resolve_banner_engine("auto"),
+            ScanOrchestrator._resolve_banner_engine(MANDATORY_BANNER_ENGINE),
             MANDATORY_BANNER_ENGINE,
         )
 
-    def test_public_python_selections_are_rejected_explicitly(self):
-        with self.assertRaisesRegex(
-            SpecializedFlowError,
-            "requiere Rust.*--engine python",
-        ):
-            ScanOrchestrator._resolve_scan_engine("python")
+        for requested in ("auto", "python", "go", ""):
+            with self.subTest(scan_engine=requested):
+                with self.assertRaisesRegex(
+                    SpecializedFlowError,
+                    "engine debe ser 'rust'",
+                ):
+                    ScanOrchestrator._resolve_scan_engine(requested)
 
-        with self.assertRaisesRegex(
-            SpecializedFlowError,
-            "requiere Go.*--banner-engine python",
-        ):
-            ScanOrchestrator._resolve_banner_engine("python")
+        for requested in ("auto", "python", "rust", ""):
+            with self.subTest(banner_engine=requested):
+                with self.assertRaisesRegex(
+                    SpecializedFlowError,
+                    "banner_engine debe ser 'go'",
+                ):
+                    ScanOrchestrator._resolve_banner_engine(requested)
 
-    def test_cli_keeps_legacy_arguments_but_rejects_python_activation(self):
-        cli = PortScannerCLI()
-        args = cli.parser.parse_args(
-            [
-                "127.0.0.1",
-                "--engine",
-                "python",
-                "--banner-grab",
-                "--banner-engine",
-                "python",
-            ]
+    def test_public_help_uses_canonical_identity_without_engine_selectors(self):
+        with patch.object(sys, "argv", ["main.py"]):
+            main_help = PortScannerCLI().parser.format_help()
+        with patch.object(sys, "argv", ["portscanner"]):
+            alias_help = PortScannerCLI().parser.format_help()
+
+        self.assertEqual(main_help, alias_help)
+        self.assertIn("usage: cicadaport", main_help)
+        self.assertNotIn("--engine", main_help)
+        self.assertNotIn("--banner-engine", main_help)
+        self.assertNotIn("python main.py", main_help)
+        self.assertNotRegex(main_help.lower(), r"\bauto\b")
+
+    @patch("src.orchestrator.NetworkUtils.resolve_host")
+    @patch("src.orchestrator.RustScannerBridge")
+    def test_legacy_public_selectors_exit_two_before_network_activity(
+        self,
+        rust_bridge_class,
+        resolve_host,
+    ):
+        legacy_invocations = (
+            ("--engine", "rust"),
+            ("--engine", "auto"),
+            ("--engine", "python"),
+            ("--banner-engine", "go"),
+            ("--banner-engine", "auto"),
+            ("--banner-engine", "python"),
         )
-        args = cli._apply_profile_defaults(args)
 
-        with patch("builtins.print") as print_mock:
-            valid = cli.validate_arguments(args)
+        for option, value in legacy_invocations:
+            with self.subTest(option=option, value=value):
+                cli = PortScannerCLI()
+                stderr = io.StringIO()
+                argv = ["cicadaport", "127.0.0.1", option, value]
 
-        self.assertFalse(valid)
-        rendered = " ".join(
-            " ".join(str(value) for value in call.args)
-            for call in print_mock.call_args_list
-        )
-        self.assertIn("requiere Rust", rendered)
-        self.assertIn("--engine python", rendered)
+                with (
+                    patch.object(sys, "argv", argv),
+                    redirect_stderr(stderr),
+                    self.assertRaises(SystemExit) as error,
+                ):
+                    cli.run()
+
+                self.assertEqual(error.exception.code, 2)
+                self.assertIn(
+                    f"unrecognized arguments: {option} {value}",
+                    stderr.getvalue(),
+                )
+
+        resolve_host.assert_not_called()
+        rust_bridge_class.assert_not_called()
 
 
 class TestSpecializedPreflight(unittest.TestCase):
@@ -97,9 +129,7 @@ class TestSpecializedPreflight(unittest.TestCase):
         request = ScanRequest(
             host="127.0.0.1",
             ports="45001",
-            engine="auto",
             banner_grab=True,
-            banner_engine="auto",
         )
 
         with self.assertRaisesRegex(
@@ -131,7 +161,6 @@ class TestSpecializedPreflight(unittest.TestCase):
         request = ScanRequest(
             host="127.0.0.1",
             ports="45001",
-            banner_engine="auto",
             banner_grab=True,
         )
 
@@ -176,7 +205,7 @@ class TestSpecializedPreflight(unittest.TestCase):
 class TestSpecializedOrchestration(unittest.TestCase):
     @patch("src.orchestrator.GoBannerBridge")
     @patch("src.orchestrator.RustScannerBridge")
-    def test_auto_runs_rust_then_go_and_never_calls_python(
+    def test_mandatory_flow_runs_rust_then_go_and_never_calls_python(
         self,
         rust_bridge_class,
         go_bridge_class,
@@ -218,9 +247,7 @@ class TestSpecializedOrchestration(unittest.TestCase):
             request = ScanRequest(
                 host="127.0.0.1",
                 ports="45001",
-                engine="auto",
                 banner_grab=True,
-                banner_engine="auto",
                 report_dir=temp_dir,
                 report_format="json",
             )
@@ -256,13 +283,40 @@ class TestSpecializedOrchestration(unittest.TestCase):
             engine="python",
         )
 
-        with self.assertRaisesRegex(SpecializedFlowError, "requiere Rust"):
+        with self.assertRaisesRegex(
+            SpecializedFlowError,
+            "engine debe ser 'rust'",
+        ):
             orchestrator.run(request)
 
         rust_bridge_class.assert_not_called()
         resolve_host.assert_not_called()
         scan_python.assert_not_called()
         scan_rust.assert_not_called()
+
+    @patch("src.orchestrator.NetworkUtils.resolve_host")
+    @patch("src.orchestrator.RustScannerBridge")
+    def test_incompatible_banner_engine_is_rejected_even_when_disabled(
+        self,
+        rust_bridge_class,
+        resolve_host,
+    ):
+        orchestrator = ScanOrchestrator()
+        request = ScanRequest(
+            host="127.0.0.1",
+            ports="45001",
+            banner_grab=False,
+            banner_engine="auto",
+        )
+
+        with self.assertRaisesRegex(
+            SpecializedFlowError,
+            "banner_engine debe ser 'go'",
+        ):
+            orchestrator.run(request)
+
+        rust_bridge_class.assert_not_called()
+        resolve_host.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import inspect
 import unittest
 
 from config import config
@@ -21,6 +22,12 @@ class TestScanProfiles(unittest.TestCase):
         self.assertEqual(options.engine, "rust")
         self.assertFalse(options.banner_grab)
         self.assertEqual(options.banner_engine, "go")
+
+    def test_public_option_resolution_does_not_accept_engine_selectors(self):
+        parameters = inspect.signature(resolve_scan_options).parameters
+
+        self.assertNotIn("engine", parameters)
+        self.assertNotIn("banner_engine", parameters)
 
     def test_explicit_port_range_overrides_safe_common_ports(self):
         options = resolve_scan_options("safe", ports="443")

@@ -35,24 +35,24 @@ class PortScannerCLI:
 
     def _setup_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
+            prog="cicadaport",
             description=(
                 "CicadaPort - Reconocimiento TCP para evaluaciones "
                 "de seguridad autorizadas"
             ),
             epilog=(
                 "Ejemplos:\n"
-                "  python main.py localhost\n"
-                "  python main.py 192.168.1.1 --profile standard\n"
-                "  python main.py 10.0.0.0 -p 20-443 -t 200 --format json\n"
-                "  python main.py localhost --engine auto --banner-grab "
-                "--banner-engine auto\n"
-                "  python main.py localhost --target 127.0.0.2 "
+                "  cicadaport localhost\n"
+                "  cicadaport 192.168.1.1 --profile standard\n"
+                "  cicadaport 10.0.0.0 -p 20-443 -t 200 --format json\n"
+                "  cicadaport localhost --banner-grab\n"
+                "  cicadaport localhost --target 127.0.0.2 "
                 "--target-workers 2\n"
-                "  python main.py localhost --target 127.0.0.2 "
+                "  cicadaport localhost --target 127.0.0.2 "
                 "--target-workers 2 --tui\n"
-                "  python main.py --target-file objetivos.txt "
+                "  cicadaport --target-file objetivos.txt "
                 "--exclude 127.0.0.2\n"
-                "  python main.py localhost --profile standard --tui"
+                "  cicadaport localhost --profile standard --tui"
             ),
             formatter_class=argparse.RawDescriptionHelpFormatter,
         )
@@ -148,16 +148,6 @@ class PortScannerCLI:
             default=None,
             help="Timeout por puerto en segundos.",
         )
-        scan_group.add_argument(
-            "--engine",
-            choices=["auto", "python", "rust"],
-            default=None,
-            help=(
-                "Compatibilidad transitoria: 'auto' y 'rust' usan Rust. "
-                "'python' se conserva, pero el flujo público lo rechaza."
-            ),
-        )
-
         banner_group = scan_group.add_mutually_exclusive_group()
         banner_group.add_argument(
             "--banner-grab",
@@ -172,16 +162,6 @@ class PortScannerCLI:
             action="store_false",
             help="Desactivar banners aunque el perfil los habilite.",
         )
-        scan_group.add_argument(
-            "--banner-engine",
-            choices=["auto", "python", "go"],
-            default=None,
-            help=(
-                "Compatibilidad transitoria: 'auto' y 'go' usan Go. "
-                "'python' se conserva, pero el flujo público lo rechaza."
-            ),
-        )
-
         output_group = parser.add_argument_group("Opciones de salida")
         output_group.add_argument(
             "-o",
@@ -227,9 +207,7 @@ class PortScannerCLI:
             common_ports=args.common_ports,
             threads=args.threads,
             timeout=args.timeout,
-            engine=args.engine,
             banner_grab=args.banner_grab,
-            banner_engine=args.banner_engine,
         )
         args.ports = options.ports
         args.common_ports = options.common_ports

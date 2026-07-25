@@ -1,7 +1,8 @@
 # Contributing to CicadaPort
 
 Thank you for helping improve CicadaPort. Contributions must preserve accurate
-results, safe defaults, and parity between the Python and Rust scan engines.
+results, safe defaults, and the mandatory specialized flow implemented by
+Python, Rust, and Go.
 
 ## Safety and authorization
 
@@ -29,6 +30,22 @@ Roadmap changes must:
 A functional subhito must update the affected documentation as part of its
 controlled closing flow. Do not combine unrelated roadmap changes with
 unapproved implementation work.
+
+## Specialized public interface
+
+The public CLI does not expose engine selectors. Contributions must preserve
+these invariants:
+
+- Rust is the mandatory public TCP engine.
+- Go is the mandatory banner engine when `--banner-grab` is enabled.
+- `--engine` and `--banner-engine` are not accepted public options.
+- Legacy selector arguments must fail through `argparse` with exit code `2`
+  before target resolution, binary preflight, network activity, or report
+  creation.
+- Programmatic requests must use the canonical internal values `rust` and `go`;
+  incompatible values must fail before network activity.
+- There is no silent fallback to the internal Python implementations.
+- CLI, TUI, and reports must continue to expose the effective engine metadata.
 
 ## Development setup
 
@@ -100,11 +117,11 @@ Run the Go commands from `go-banner/`.
 - Automatic reports must be stored under `reports/` unless the user selects
   another report directory or supplies an explicit output path.
 - Automatic report names must never overwrite an existing report.
-- Python and Rust must agree on open/closed states and statistics for the same
-  deterministic localhost fixture.
+- Internal Python fixtures and Rust must agree on open/closed states and
+  statistics for the same deterministic localhost fixture.
 - TCP scans must not send application payloads unless `--banner-grab` is set.
-- Python and Go banner engines must use the same TLS, probe, sanitization, and
-  output-length policy.
+- Internal Python banner fixtures and Go must use the same TLS, probe,
+  sanitization, and output-length policy.
 - HTML must escape target and service data; CSV must neutralize formula cells.
 
 Any change to this contract requires tests in the same commit.

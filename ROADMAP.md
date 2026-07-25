@@ -33,6 +33,7 @@ anotada y firmada, publicada y verificada contra el commit correspondiente.
 | 3.2.4 | Flujo especializado con Python como orquestador, Rust obligatorio para TCP y Go obligatorio para banners. | `subhito-3.2.4` → `b899db3` | `CLOSED_FROZEN` |
 | 3.2.5 | Orquestación multiobjetivo, resolución independiente, fallos aislados y presupuesto global de concurrencia. | `subhito-3.2.5` → `7e34602` | `CLOSED_FROZEN` |
 | 3.2.6 | Monitorización multiobjetivo en TUI, progreso global, cancelación cooperativa y consolidación visual de sesiones. | `subhito-3.2.6` → `ebfe148` | `CLOSED_FROZEN` |
+| 3.2.7 | Hoja de ruta técnica, deuda transitoria y criterios de cierre del Hito 3. | `subhito-3.2.7` → `92777f5` | `CLOSED_FROZEN` |
 
 La arquitectura pública congelada es:
 
@@ -62,7 +63,7 @@ probada.
 
 | Código | Materia observada | Estado actual | Decisión pendiente |
 | --- | --- | --- | --- |
-| `DT-01` | `--engine`, `--banner-engine` y los alias `auto`. | Se conservan en la interfaz; Rust y Go son los únicos motores públicos efectivos y seleccionar Python produce un error controlado. | Definir deprecación, permanencia o retirada con política pública explícita. |
+| `DT-01` | `--engine`, `--banner-engine` y los alias de selección. | El contrato `CIPE-CICADAPORT-3.2.8-001` aprobó retirarlos de la CLI: Rust y Go permanecen como invariantes internas y las opciones históricas deben terminar con código `2` antes de actividad de red. | Implementación en el Subhito 3.2.8; el cierre solo se materializa con CI verde y la etiqueta firmada `subhito-3.2.8`. |
 | `DT-02` | Invocación nativa histórica mediante `--host`, `--ports` y variantes heredadas. | Los puentes Python usan `--request-stdin`; las rutas históricas permanecen para compatibilidad interna. | Definir su ventana de soporte y el criterio verificable de retirada. |
 | `DT-03` | Implementaciones Python de escaneo y banners. | Permanecen como referencia interna y soporte de pruebas, sin selección pública. | Definir si se conservan, se aíslan como fixtures o se retiran en una versión mayor. |
 | `DT-04` | Proyección temporal `is_open`. | El contrato canónico usa estados y evidencia, pero mantiene `is_open` para consumidores anteriores. | Establecer política de compatibilidad, migración y versionado contractual. |
@@ -77,31 +78,39 @@ ruta mediante un commit documental firmado.
 
 ### Subhito 3.2.8 — Consolidación de la interfaz pública especializada
 
-**Estado:** `DEFINED`
-**Siguiente subhito técnico previsto:** sí.
+**Estado verificable:** `CLOSED_FROZEN` únicamente cuando exista y se haya
+verificado la etiqueta firmada `subhito-3.2.8`; hasta entonces el estado se
+determina por la evidencia disponible como `IN_IMPLEMENTATION` o `CANDIDATE`.
+**Contrato aprobado:** `CIPE-CICADAPORT-3.2.8-001`, versión `1.0-CANDIDATA`.
+**Base autorizada:** `main@92777f5241fcad1bbc86d2b7735d4c2a538ed64f`
+y `subhito-3.2.7`.
 
-Objetivo:
+Decisión autorizada:
 
-- resolver `DT-01`;
-- establecer la política pública para `--engine`, `--banner-engine` y `auto`;
-- conservar Rust y Go como motores obligatorios;
-- definir mensajes, compatibilidad, deprecación y códigos de salida sin fallback
-  silencioso.
-
-Precondiciones:
-
-- Subhito 3.2.7 cerrado y congelado;
-- contrato provisional específico aprobado;
-- pruebas existentes de flujo especializado identificadas como barrera de
-  compatibilidad.
+- retirar `--engine` y `--banner-engine` del parser público;
+- retirar `auto`, `python`, `rust` y `go` como elecciones públicas de motor;
+- consolidar `cicadaport` como identidad canónica de la ayuda;
+- conservar Rust como motor TCP público obligatorio;
+- conservar Go como motor obligatorio cuando `--banner-grab` está habilitado;
+- mantener metadatos internos de motor y rechazar solicitudes programáticas
+  incompatibles antes de cualquier actividad de red;
+- mantener las implementaciones Python internas fuera de la selección pública;
+- no modificar contratos JSONL, versiones, formatos de reporte, entry points ni
+  invocaciones nativas históricas.
 
 Criterios mínimos de aceptación:
 
-- comportamiento público inequívoco;
-- ayuda CLI, README y pruebas coherentes;
-- ausencia de activación pública de los motores Python;
-- compatibilidad o deprecación documentada;
-- CI completo verde.
+- la ayuda pública no expone selectores de motor;
+- los puntos de entrada muestran la identidad canónica `cicadaport`;
+- las opciones históricas terminan con código `2` antes de resolver objetivos;
+- Rust y Go permanecen como únicos motores públicos efectivos, sin fallback;
+- perfiles, TUI y reportes conservan metadatos internos coherentes;
+- README, CONTRIBUTING, pruebas y scripts reflejan la migración;
+- validación local completa, commit firmado y CI completamente verde;
+- cierre mediante la etiqueta anotada y firmada `subhito-3.2.8`.
+
+El Subhito 3.2.9 permanece bloqueado hasta que Git demuestre el estado
+`CLOSED_FROZEN` de este subhito.
 
 ### Subhito 3.2.9 — Consolidación de la invocación nativa
 
@@ -235,10 +244,9 @@ Arquitecto del Proyecto.
 
 ## Siguiente acción formal
 
-Después de cerrar y etiquetar el Subhito 3.2.7, la siguiente acción permitida es
-preparar el contrato provisional del:
+La única acción habilitada es completar, validar e integrar el Subhito 3.2.8
+bajo `CIPE-CICADAPORT-3.2.8-001`. Su cierre exige CI verde y la etiqueta firmada
+`subhito-3.2.8`.
 
-> **Subhito 3.2.8 — Consolidación de la interfaz pública especializada**
-
-Hasta que ese contrato sea aprobado, el Subhito 3.2.8 permanece `DEFINED` y no
-debe modificarse código ejecutable.
+El Subhito 3.2.9 permanece `DEFINED` y no está autorizado. No debe iniciarse
+mientras el Subhito 3.2.8 no esté materialmente `CLOSED_FROZEN`.

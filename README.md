@@ -128,11 +128,16 @@ binario Rust y, si se solicitaron banners, también el binario Go. Si falta un
 motor requerido, la sesión falla con un diagnóstico claro y recomienda ejecutar
 `./scripts/build_all.sh`; nunca cambia silenciosamente a Python.
 
-`--engine` y `--banner-engine` se conservan temporalmente para no eliminar aún
-la interfaz pública. `auto` y `rust` activan Rust; `auto` y `go` activan Go.
-Seleccionar explícitamente `python` produce un error controlado. Las
-implementaciones Python de escaneo y banners permanecen en el repositorio como
-referencia interna, pero ya no son seleccionables desde el flujo público.
+La CLI no expone selectores de motor: Rust es siempre el motor TCP público y
+Go es el único motor de banners cuando `--banner-grab` está habilitado. Las
+opciones históricas `--engine` y `--banner-engine` ya no se reconocen y terminan
+con código `2` antes de resolver objetivos o iniciar actividad de red. Para
+migrar automatizaciones existentes, elimina esos argumentos; el flujo efectivo
+permanece invariable y nunca utiliza fallback Python.
+
+Las implementaciones Python de escaneo y banners permanecen en el repositorio
+como referencia interna y soporte de pruebas, pero no son seleccionables desde
+la interfaz pública.
 
 ## Instalación Rápida
 
@@ -194,9 +199,9 @@ cicadaport 192.168.1.10 --profile safe --tui
 # TCP completo, enumeración de servicios y reporte JSON
 cicadaport 192.168.1.10 --profile deep --format json --tui
 
-# Rango de puertos definido manualmente con los motores obligatorios
+# Rango de puertos definido manualmente y banners Go explícitos
 cicadaport 192.168.1.10 --profile custom -p 20-443 \
-  --engine rust --banner-grab --banner-engine go --tui
+  --banner-grab --tui
 
 # Dos objetivos locales con progreso global y reportes independientes
 cicadaport 127.0.0.1 --target 127.0.0.2 \
@@ -237,15 +242,15 @@ cicadaport 192.168.1.10 --profile standard
 cicadaport 192.168.1.10 --profile deep
 
 # Configuración manual conservando el flujo especializado
-cicadaport 192.168.1.10 --profile custom -p 22-443 --engine rust
+cicadaport 192.168.1.10 --profile custom -p 22-443
 ```
 
 Las opciones manuales de puertos, concurrencia, timeout, banners y salida siguen
-teniendo prioridad sobre el perfil. Los selectores de motor permanecen solo
-durante la transición: `auto` resuelve siempre a Rust para TCP y a Go para
-banners, sin fallback. El perfil `deep` amplía la cobertura TCP, pero no
-sustituye por sí solo las técnicas de descubrimiento, UDP, SYN, identificación
-de sistema operativo o scripting especializado de otras herramientas.
+teniendo prioridad sobre el perfil. El motor TCP permanece fijado en Rust y la
+fase de banners, cuando está activa, permanece fijada en Go, sin selectores ni
+fallback. El perfil `deep` amplía la cobertura TCP, pero no sustituye por sí
+solo las técnicas de descubrimiento, UDP, SYN, identificación de sistema
+operativo o scripting especializado de otras herramientas.
 
 ## Orquestación multiobjetivo
 
@@ -296,11 +301,11 @@ El escaneo TCP no envía cargas de aplicación por defecto. Para solicitar
 banners de forma explícita:
 
 ```bash
-# Rust obligatorio + Go obligatorio para banners
-cicadaport localhost --engine rust --banner-grab --banner-engine go
+# Rust ejecuta TCP y Go captura los banners solicitados
+cicadaport localhost --banner-grab
 
-# Los alias transitorios auto mantienen el mismo flujo
-cicadaport localhost --engine auto --banner-grab --banner-engine auto
+# Un perfil con banners puede desactivarlos explícitamente
+cicadaport localhost --profile standard --no-banner-grab
 ```
 
 Go negocia TLS en los puertos cifrados conocidos, envía un único `HEAD` solo a

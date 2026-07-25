@@ -319,32 +319,19 @@ class ScanOrchestrator:
 
     @staticmethod
     def _resolve_scan_engine(requested: str) -> str:
-        if requested == "python":
+        if requested != MANDATORY_SCAN_ENGINE:
             raise SpecializedFlowError(
-                "El flujo especializado requiere Rust para el escaneo TCP. "
-                "--engine python se conserva temporalmente en la interfaz, "
-                "pero la implementación Python ya no puede seleccionarse "
-                "desde el flujo público."
-            )
-        if requested not in {"auto", MANDATORY_SCAN_ENGINE}:
-            raise SpecializedFlowError(
-                f"Motor TCP no compatible con el flujo especializado: {requested!r}."
+                "Solicitud programática incompatible: engine debe ser "
+                f"'{MANDATORY_SCAN_ENGINE}'; recibido {requested!r}."
             )
         return MANDATORY_SCAN_ENGINE
 
     @staticmethod
     def _resolve_banner_engine(requested: str) -> str:
-        if requested == "python":
+        if requested != MANDATORY_BANNER_ENGINE:
             raise SpecializedFlowError(
-                "El flujo especializado requiere Go para la captura de banners. "
-                "--banner-engine python se conserva temporalmente en la interfaz, "
-                "pero la implementación Python ya no puede seleccionarse "
-                "desde el flujo público."
-            )
-        if requested not in {"auto", MANDATORY_BANNER_ENGINE}:
-            raise SpecializedFlowError(
-                "Motor de banners no compatible con el flujo especializado: "
-                f"{requested!r}."
+                "Solicitud programática incompatible: banner_engine debe ser "
+                f"'{MANDATORY_BANNER_ENGINE}'; recibido {requested!r}."
             )
         return MANDATORY_BANNER_ENGINE
 
@@ -628,8 +615,11 @@ class ScanOrchestrator:
 
         ports = self._get_ports_to_scan(request)
         scan_engine = self._resolve_scan_engine(request.engine)
+        resolved_banner_engine = self._resolve_banner_engine(
+            request.banner_engine
+        )
         banner_engine = (
-            self._resolve_banner_engine(request.banner_engine)
+            resolved_banner_engine
             if request.banner_grab
             else DISABLED_BANNER_ENGINE
         )
