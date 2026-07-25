@@ -55,13 +55,15 @@ class ScanResult:
         if self.protocol not in {"tcp", "udp"}:
             raise ValueError("protocol debe ser 'tcp' o 'udp'.")
 
+        supplied_is_open = self.is_open
         if self.state is None:
-            self.state = PortState.from_legacy_is_open(self.is_open)
+            self.state = PortState.from_legacy_is_open(supplied_is_open)
         elif not isinstance(self.state, PortState):
             try:
                 self.state = PortState(self.state)
             except (TypeError, ValueError) as error:
                 raise ValueError(f"state no válido: {self.state!r}.") from error
+        self.state.validate_legacy_projection(supplied_is_open)
         self.is_open = self.state.legacy_is_open
 
         if not isinstance(self.host_state, HostState):
@@ -190,10 +192,14 @@ class ScanResult:
             raise ValueError("record_type debe ser 'port_result'.")
         try:
             port = int(payload["port"])
-            state = payload["state"]
+            state = PortState(payload["state"])
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError("El contrato requiere port y state válidos.") from error
-
+        is_open = (
+            payload["is_open"]
+            if "is_open" in payload
+            else state.legacy_is_open
+        )
         evidence_payload = payload.get("evidence", {})
         if not evidence_payload and payload.get("reason"):
             evidence_payload = {
@@ -203,7 +209,7 @@ class ScanResult:
 
         result = cls(
             port=port,
-            is_open=payload.get("is_open"),
+            is_open=is_open,
             service=payload.get("service", ""),
             banner=payload.get("banner"),
             response_time=float(payload.get("response_time", 0.0)),
@@ -232,7 +238,7 @@ class PortScanner:
     ``results`` conserva un resultado por cada puerto solicitado, incluidos los
     cerrados o filtrados. Los valores retornados por los métodos de escaneo y
     los obtenidos mediante ``get_reportable_results`` contienen únicamente
-    puertos cuyo estado es exactamente ``True``.
+    puertos cuyo estado canónico es exactamente ``open``.
     """
 
     def __init__(

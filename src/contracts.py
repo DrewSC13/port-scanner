@@ -92,9 +92,16 @@ class PortState(str, Enum):
     OPEN_FILTERED = "open|filtered"
     CLOSED_FILTERED = "closed|filtered"
 
+    @staticmethod
+    def _validate_legacy_is_open_value(is_open: Optional[bool]) -> None:
+        """Rechaza proyecciones ambiguas distintas de ``bool`` o ``None``."""
+        if is_open is not None and not isinstance(is_open, bool):
+            raise ValueError("is_open debe ser booleano o null.")
+
     @classmethod
     def from_legacy_is_open(cls, is_open: Optional[bool]) -> "PortState":
-        """Convierte el contrato temporal ``True/False/None``."""
+        """Adapta una entrada heredada que todavía no declara ``state``."""
+        cls._validate_legacy_is_open_value(is_open)
         if is_open is True:
             return cls.OPEN
         if is_open is False:
@@ -103,12 +110,23 @@ class PortState(str, Enum):
 
     @property
     def legacy_is_open(self) -> Optional[bool]:
-        """Proyección temporal para consumidores anteriores al contrato v1."""
+        """Proyecta el estado canónico para consumidores compatibles con v1."""
         if self is PortState.OPEN:
             return True
         if self in {PortState.CLOSED, PortState.FILTERED}:
             return False
         return None
+
+    @property
+    def is_reportable(self) -> bool:
+        """Indica si el resultado pertenece al conjunto público reportable."""
+        return self is PortState.OPEN
+
+    def validate_legacy_projection(self, is_open: Optional[bool]) -> None:
+        """Exige que ``is_open`` sea la proyección exacta de este estado."""
+        self._validate_legacy_is_open_value(is_open)
+        if is_open is not self.legacy_is_open:
+            raise ValueError("is_open no coincide con state.")
 
 
 class HostState(str, Enum):
