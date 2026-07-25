@@ -55,22 +55,19 @@ class TestMultiTargetCLI(unittest.TestCase):
         self.assertEqual(batch_request.targets[0], "127.0.0.1")
         self.assertEqual(batch_request.exclusions, ("127.0.0.2",))
 
-    def test_tui_rejects_more_than_one_expanded_target(self):
+    def test_tui_accepts_more_than_one_expanded_target(self):
         cli = PortScannerCLI()
         args = cli.parser.parse_args(
-            ["127.0.0.1-127.0.0.2", "--tui"]
+            ["127.0.0.1-127.0.0.2", "--target-workers", "2", "--tui"]
         )
         args = cli._apply_profile_defaults(args)
 
-        with patch("builtins.print") as print_mock:
-            valid = cli.validate_arguments(args)
+        self.assertTrue(cli.validate_arguments(args))
 
-        self.assertFalse(valid)
-        rendered = " ".join(
-            " ".join(str(value) for value in call.args)
-            for call in print_mock.call_args_list
-        )
-        self.assertIn("--tui admite un único objetivo", rendered)
+        request = cli._build_tui_request(args)
+        self.assertIsInstance(request, ScanBatchRequest)
+        self.assertEqual(request.targets, ("127.0.0.1", "127.0.0.2"))
+        self.assertEqual(request.target_workers, 2)
 
     def test_cli_dispatches_expanded_targets_to_batch_orchestrator(self):
         cli = PortScannerCLI()

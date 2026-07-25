@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 from datetime import datetime
 import time
-from typing import Deque, Optional
+from typing import Deque, Optional, Set
 
 from rich.markup import escape
 from textual import work
@@ -23,11 +23,17 @@ from src.orchestrator import (
     DISABLED_BANNER_ENGINE,
     MANDATORY_BANNER_ENGINE,
     MANDATORY_SCAN_ENGINE,
+    ScanBatchOutcome,
+    ScanBatchRequest,
     ScanOrchestrator,
     ScanOutcome,
     ScanRequest,
 )
 from src.scanner import ScanResult
+
+
+TuiRequest = ScanRequest | ScanBatchRequest
+TuiOutcome = ScanOutcome | ScanBatchOutcome
 
 
 class OrchestratorUpdate(Message):
@@ -44,6 +50,10 @@ class OrchestratorFailure(Message):
     def __init__(self, error: Exception) -> None:
         self.error = error
         super().__init__()
+
+
+class OrchestratorStopped(Message):
+    """Confirma que el worker terminó después de una cancelación."""
 
 
 class CicadaPortApp(App[None]):
@@ -217,33 +227,41 @@ class CicadaPortApp(App[None]):
 
     def __init__(
         self,
-        request: ScanRequest,
+        request: TuiRequest,
         *,
         auto_start: bool = True,
     ) -> None:
         super().__init__(ansi_color=True)
         self._request = request
+        self._template = self._template_request(request)
         self._auto_start = auto_start
         self._orchestrator: Optional[ScanOrchestrator] = None
         self._scan_worker: Optional[Worker] = None
         self._scan_active = False
         self._phase = "queued"
         self._resolved_host = "-"
+        self._current_target = self._target_label(request)
         self._effective_scan_engine = MANDATORY_SCAN_ENGINE
         self._effective_banner_engine = (
             MANDATORY_BANNER_ENGINE
-            if request.banner_grab
+            if self._template.banner_grab
             else DISABLED_BANNER_ENGINE
         )
         self._progress = 0.0
         self._scanned_ports = 0
-        self._total_ports = self._request_port_count(request)
+        self._requested_targets = self._request_target_count(request)
+        self._target_total = self._requested_targets
+        self._completed_targets = 0
+        self._failed_targets = 0
+        self._completed_target_keys: Set[str] = set()
+        self._failed_target_keys: Set[str] = set()
+        self._total_ports = self._request_total_port_count(request)
         self._open_ports = 0
         self._closed_ports = 0
         self._filtered_ports = 0
         self._scan_started_at: Optional[float] = None
         self._scan_finished_elapsed = 0.0
-        self._last_outcome: Optional[ScanOutcome] = None
+        self._last_outcome: Optional[TuiOutcome] = None
         self._last_result: Optional[ScanResult] = None
         self._latency_samples: Deque[float] = deque(maxlen=76)
         self._state_samples: Deque[Optional[bool]] = deque(maxlen=76)
@@ -344,8 +362,8 @@ class CicadaPortApp(App[None]):
         self._write_event(
             "CONFIG",
             (
-                f"target={self._request.host} profile={self._request.profile} "
-                f"ports={self._request.ports}"
+                f"targets={self._requested_targets} "
+                f"profile={self._template.profile} ports={self._template.ports}"
             ),
         )
         self._write_event(
@@ -472,15 +490,16 @@ class CicadaPortApp(App[None]):
             "cancelled": "#fbbf24",
             "failed": "#fb7185",
         }.get(self._phase, "#94a3b8")
+        target_label = self._target_label(self._request)
         self.query_one("#topbar", Static).update(
             "[bold #8bdcff]CICADAPORT[/]  "
             "[#41677f]/ SPECIALIZED RECON CONSOLE[/]     "
             "[#55758d]SESSION[/] "
             f"[#a5b4fc]{self._session_id}[/]\n"
-            "[#55758d]TARGET[/] "
-            f"[#e4f2fc]{escape(self._request.host)}[/]   "
+            "[#55758d]TARGET SET[/] "
+            f"[#e4f2fc]{escape(target_label)}[/]   "
             "[#55758d]PROFILE[/] "
-            f"[#7dd3fc]{escape(self._request.profile.upper())}[/]   "
+            f"[#7dd3fc]{escape(self._template.profile.upper())}[/]   "
             "[#55758d]ENGINE[/] "
             f"[#67e8f9]{escape(self._effective_scan_engine.upper())}[/]   "
             "[#55758d]PHASE[/] "
@@ -531,29 +550,70 @@ class CicadaPortApp(App[None]):
         )
 
     def _refresh_session(self) -> None:
-        request = self._request
+        request = self._template
         report_mode = (
             request.output if request.output else f"{request.report_dir}/scan_report_*"
         )
         session_width = self.query_one("#session", Static).size.width
         column_width = max(13, min(24, (session_width - 5) // 2))
-        target = self._clean_field(request.host, max(18, session_width - 2))
+        target = self._clean_field(self._current_target, max(18, session_width - 2))
         resolved = self._clean_field(
             self._resolved_host,
             max(18, session_width - 2),
         )
         port_scope = self._clean_field(request.ports, column_width)
         report = self._clean_field(str(report_mode), max(22, session_width - 2))
+        active_targets = self._active_target_count()
+        target_workers = (
+            self._request.target_workers
+            if isinstance(self._request, ScanBatchRequest)
+            else 1
+        )
+        target_counts = self._session_pair(
+            str(self._requested_targets),
+            str(active_targets),
+            column_width,
+            values=True,
+        )
+        completion_counts = self._session_pair(
+            str(self._completed_targets),
+            str(self._failed_targets),
+            column_width,
+            values=True,
+        )
+        transport_values = self._session_pair(
+            "TCP CONNECT",
+            port_scope,
+            column_width,
+            values=True,
+        )
+        engine_values = self._session_pair(
+            self._effective_scan_engine.upper(),
+            self._effective_banner_engine.upper(),
+            column_width,
+            values=True,
+            accent=True,
+        )
+        worker_values = self._session_pair(
+            str(request.threads),
+            str(target_workers),
+            column_width,
+            values=True,
+        )
         self.query_one("#session", Static).update(
-            "[#55758d]TARGET / RESOLUTION[/]\n"
+            "[#55758d]CURRENT TARGET / RESOLUTION[/]\n"
             f"[#e4f2fc]{escape(target)}[/]  "
-            f"[#67e8f9]{escape(resolved)}[/]\n\n"
+            f"[#67e8f9]{escape(resolved)}[/]\n"
+            f"{self._session_pair('TARGETS', 'ACTIVE', column_width)}\n"
+            f"{target_counts}\n"
+            f"{self._session_pair('DONE', 'FAILED', column_width)}\n"
+            f"{completion_counts}\n"
             f"{self._session_pair('TRANSPORT', 'PORT SCOPE', column_width)}\n"
-            f"{self._session_pair('TCP CONNECT', port_scope, column_width, values=True)}\n"
+            f"{transport_values}\n"
             f"{self._session_pair('SCAN ENGINE', 'SERVICE ENGINE', column_width)}\n"
-            f"{self._session_pair(self._effective_scan_engine.upper(), self._effective_banner_engine.upper(), column_width, values=True, accent=True)}\n"
-            f"{self._session_pair('WORKERS', 'TIMEOUT', column_width)}\n"
-            f"{self._session_pair(str(request.threads), f'{request.timeout:.2f} S', column_width, values=True)}\n"
+            f"{engine_values}\n"
+            f"{self._session_pair('THREAD BUDGET', 'TARGET WORKERS', column_width)}\n"
+            f"{worker_values}\n"
             "[#55758d]OUTPUT / REPORT[/]\n"
             f"[#e879f9]{escape(request.report_format.upper())}[/]  "
             f"[#8aa4b8]{escape(report)}[/]"
@@ -573,9 +633,24 @@ class CicadaPortApp(App[None]):
         self._refresh_activity()
         self._refresh_session()
 
-    def _build_request(self) -> ScanRequest:
+    def _build_request(self) -> TuiRequest:
         """Devuelve la solicitud inmutable recibida desde la CLI."""
         return self._request
+
+    @staticmethod
+    def _template_request(request: TuiRequest) -> ScanRequest:
+        return request.template if isinstance(request, ScanBatchRequest) else request
+
+    @staticmethod
+    def _request_target_count(request: TuiRequest) -> int:
+        if isinstance(request, ScanBatchRequest):
+            return max(1, len(request.targets))
+        return 1
+
+    @classmethod
+    def _request_total_port_count(cls, request: TuiRequest) -> int:
+        template = cls._template_request(request)
+        return cls._request_port_count(template) * cls._request_target_count(request)
 
     @staticmethod
     def _request_port_count(request: ScanRequest) -> int:
@@ -586,6 +661,53 @@ class CicadaPortApp(App[None]):
             return 0
         start_port, end_port = port_range
         return end_port - start_port + 1
+
+    @staticmethod
+    def _target_label(request: TuiRequest) -> str:
+        if isinstance(request, ScanBatchRequest):
+            total = max(1, len(request.targets))
+            first = request.targets[0] if request.targets else "targets"
+            return f"{total} targets / {first}"
+        return request.host
+
+    def _active_target_count(self) -> int:
+        remaining = max(
+            0,
+            self._target_total - self._completed_targets - self._failed_targets,
+        )
+        if not self._scan_active:
+            return 0
+        configured = (
+            self._request.target_workers
+            if isinstance(self._request, ScanBatchRequest)
+            else 1
+        )
+        return min(configured, self._template.threads, remaining)
+
+    @staticmethod
+    def _event_context(event: ScanEvent) -> str:
+        target = event.data.get("target")
+        resolved = event.data.get("resolved_host")
+        index = event.data.get("target_index")
+        total = event.data.get("target_total")
+        parts = []
+        if index and total:
+            parts.append(f"{index}/{total}")
+        if target:
+            parts.append(str(target))
+        if resolved and resolved != target:
+            parts.append(str(resolved))
+        return f"[{' | '.join(parts)}] " if parts else ""
+
+    @staticmethod
+    def _event_target_key(event: ScanEvent) -> str:
+        failure = event.data.get("failure")
+        if failure is not None:
+            return f"{failure.target}|{failure.resolved_host or ''}|{failure.phase}"
+        return "|".join(
+            str(event.data.get(name) or "")
+            for name in ("target_index", "target", "resolved_host")
+        )
 
     def _set_active(self, active: bool) -> None:
         if not active and self._scan_started_at is not None:
@@ -600,11 +722,16 @@ class CicadaPortApp(App[None]):
         if self._scan_active:
             self._write_event("ERROR", "a scan is already active")
             return
-
         self._phase = "scanning"
         self._progress = 0.0
         self._scanned_ports = 0
-        self._total_ports = self._request_port_count(self._request)
+        self._requested_targets = self._request_target_count(self._request)
+        self._target_total = self._requested_targets
+        self._completed_targets = 0
+        self._failed_targets = 0
+        self._completed_target_keys.clear()
+        self._failed_target_keys.clear()
+        self._total_ports = self._request_total_port_count(self._request)
         self._open_ports = 0
         self._closed_ports = 0
         self._filtered_ports = 0
@@ -612,6 +739,8 @@ class CicadaPortApp(App[None]):
         self._scan_finished_elapsed = 0.0
         self._last_outcome = None
         self._last_result = None
+        self._resolved_host = "-"
+        self._current_target = self._target_label(self._request)
         self._latency_samples.clear()
         self._state_samples.clear()
         self._render_findings_header()
@@ -619,8 +748,8 @@ class CicadaPortApp(App[None]):
         self._write_event(
             "SCAN",
             (
-                f"launching target={self._request.host} "
-                f"profile={self._request.profile} ports={self._request.ports}"
+                f"launching targets={self._requested_targets} "
+                f"profile={self._template.profile} ports={self._template.ports}"
             ),
         )
         self._scan_worker = self._run_scan(self._request)
@@ -635,7 +764,7 @@ class CicadaPortApp(App[None]):
         )
         if self._orchestrator is not None:
             self._orchestrator.cancel()
-        if self._scan_worker is not None:
+        elif self._scan_worker is not None:
             self._scan_worker.cancel()
 
     def action_clear_feed(self) -> None:
@@ -659,21 +788,30 @@ class CicadaPortApp(App[None]):
             self._scan_worker.cancel()
         self.exit()
 
+    @staticmethod
+    def _execute_request(
+        orchestrator: ScanOrchestrator,
+        request: TuiRequest,
+    ) -> TuiOutcome:
+        if isinstance(request, ScanBatchRequest):
+            return orchestrator.run_many(request)
+        return orchestrator.run(request)
+
     @work(
         thread=True,
         exclusive=True,
         group="scan",
         exit_on_error=False,
     )
-    def _run_scan(self, request: ScanRequest) -> None:
+    def _run_scan(self, request: TuiRequest) -> None:
         def post_event(event: ScanEvent) -> None:
             self.post_message(OrchestratorUpdate(event))
 
         self._orchestrator = ScanOrchestrator(event_callback=post_event)
         try:
-            self._orchestrator.run(request)
+            self._execute_request(self._orchestrator, request)
         except ScanCancelledError:
-            pass
+            self.post_message(OrchestratorStopped())
         except Exception as error:
             self.post_message(OrchestratorFailure(error))
 
@@ -688,14 +826,27 @@ class CicadaPortApp(App[None]):
         findings = self._findings()
         findings.clear()
         findings.write(
-            "[#55758d]ENDPOINT       STATE   SERVICE          RTT       "
-            "FINGERPRINT[/]"
+            "[#55758d]TARGET          ADDRESS          ENDPOINT     STATE   "
+            "SERVICE          RTT       FINGERPRINT[/]"
         )
 
-    def _write_finding(self, result: ScanResult) -> None:
+    def _write_finding(
+        self,
+        result: ScanResult,
+        *,
+        target: Optional[str] = None,
+        resolved_host: Optional[str] = None,
+    ) -> None:
         service = self._clean_field(result.service or "unknown", 16)
-        fingerprint = self._clean_field(result.banner or "pending", 42)
+        fingerprint = self._clean_field(result.banner or "pending", 32)
+        target_value = self._clean_field(target or result.target or "-", 15)
+        address_value = self._clean_field(
+            resolved_host or result.address or "-",
+            15,
+        )
         self._findings().write(
+            f"[#e4f2fc]{escape(target_value):<15}[/] "
+            f"[#67e8f9]{escape(address_value):<15}[/] "
             f"[bold #e4f2fc]{result.port:>5}/"
             f"{escape(result.protocol.upper()):<6}[/] "
             "[bold #2dd4bf]OPEN[/]    "
@@ -704,9 +855,21 @@ class CicadaPortApp(App[None]):
             f"[#a5b4fc]{escape(fingerprint)}[/]"
         )
 
-    def _update_evidence(self, result: ScanResult) -> None:
+    def _update_evidence(
+        self,
+        result: ScanResult,
+        *,
+        target: Optional[str] = None,
+        resolved_host: Optional[str] = None,
+    ) -> None:
         self._last_result = result
         banner = escape(self._clean_field(result.banner or "not captured yet", 300))
+        target_value = escape(
+            self._clean_field(target or result.target or "-", 72)
+        )
+        address_value = escape(
+            self._clean_field(resolved_host or result.address or "-", 72)
+        )
         self.query_one("#evidence", Static).update(
             "[#55758d]OPEN ENDPOINT[/]  "
             f"[bold #2dd4bf]{result.port}/{escape(result.protocol.upper())}[/]   "
@@ -714,10 +877,10 @@ class CicadaPortApp(App[None]):
             f"[#67e8f9]{escape(result.service or 'unknown')}[/]   "
             "[#55758d]RTT[/]  "
             f"[#cfdeec]{result.response_time * 1000:.2f} MS[/]\n"
-            f"[#55758d]FINGERPRINT[/]  [#a5b4fc]{banner}[/]\n"
-            "[#55758d]EVIDENCE[/]  "
-            f"[#8aa4b8]{escape(self._effective_banner_engine.upper())} "
-            "service phase / no exploit or vulnerability claim[/]"
+            f"[#55758d]TARGET[/] [#e4f2fc]{target_value}[/] "
+            "[#41677f]→[/] "
+            f"[#67e8f9]{address_value}[/]\n"
+            f"[#55758d]FINGERPRINT[/]  [#a5b4fc]{banner}[/]"
         )
 
     def _render_final_findings(self, outcome: ScanOutcome) -> None:
@@ -726,7 +889,11 @@ class CicadaPortApp(App[None]):
         if not open_results:
             self._findings().write("[#55758d]No open endpoints detected.[/]")
         for result in open_results:
-            self._write_finding(result)
+            self._write_finding(
+                result,
+                target=outcome.target,
+                resolved_host=outcome.resolved_host,
+            )
 
         if self._last_result is None:
             endpoint = "[#55758d]LAST ENDPOINT[/]  [#8aa4b8]NONE[/]"
@@ -753,14 +920,67 @@ class CicadaPortApp(App[None]):
             f"{escape(str(outcome.output_path))}[/]"
         )
 
+    def _render_final_batch(self, outcome: ScanBatchOutcome) -> None:
+        self._render_findings_header()
+        open_count = 0
+        for target_outcome in outcome.outcomes:
+            for result in target_outcome.results:
+                if result.is_open is True:
+                    open_count += 1
+                    self._write_finding(
+                        result,
+                        target=target_outcome.target,
+                        resolved_host=target_outcome.resolved_host,
+                    )
+        if open_count == 0:
+            self._findings().write("[#55758d]No open endpoints detected.[/]")
+
+        stats = outcome.statistics
+        latest_report = (
+            str(outcome.outcomes[-1].output_path)
+            if outcome.outcomes
+            else "none"
+        )
+        self.query_one("#evidence", Static).update(
+            "[#55758d]BATCH RESULT[/]  "
+            f"[#e4f2fc]{stats['completed_targets']} completed[/]   "
+            f"[#fb7185]{stats['failed_targets']} failed[/]   "
+            f"[#2dd4bf]{stats['open_ports']} open[/]\n"
+            "[#55758d]RESOLVED[/]  "
+            f"[#67e8f9]{stats['resolved_targets']}[/]   "
+            "[#55758d]TARGET WORKERS[/]  "
+            f"[#a5b4fc]{stats['target_workers']}[/]   "
+            "[#55758d]WORKER BUDGET[/]  "
+            f"[#cfdeec]{stats['worker_budget']}[/]\n"
+            "[#55758d]LATEST REPORT[/]  "
+            f"[#e879f9]{escape(latest_report)}[/]"
+        )
+
     def on_orchestrator_update(
         self,
         message: OrchestratorUpdate,
     ) -> None:
         event = message.event
+        context = self._event_context(event)
 
         if event.progress is not None:
-            self._progress = event.progress
+            self._progress = max(0.0, min(100.0, float(event.progress)))
+
+        target_total = event.data.get("target_total")
+        if target_total:
+            self._target_total = max(self._target_total, int(target_total))
+            self._total_ports = (
+                self._request_port_count(self._template) * self._target_total
+            )
+        if event.data.get("target"):
+            self._current_target = str(event.data["target"])
+        if event.data.get("resolved_host"):
+            self._resolved_host = str(event.data["resolved_host"])
+
+        if event.kind == ScanEventType.TARGET_STARTED:
+            self._write_event("SCAN", context + event.message)
+            self._refresh_dashboard()
+            return
 
         if event.kind == ScanEventType.PROGRESS:
             if event.result is not None:
@@ -769,11 +989,9 @@ class CicadaPortApp(App[None]):
                     max(0.0, event.result.response_time * 1000.0)
                 )
                 self._state_samples.append(event.result.is_open)
-                if event.result.is_open is True:
-                    pass
-                elif event.result.is_open is None:
+                if event.result.is_open is None:
                     self._filtered_ports += 1
-                else:
+                elif event.result.is_open is not True:
                     self._closed_ports += 1
             self._refresh_activity()
             return
@@ -782,25 +1000,36 @@ class CicadaPortApp(App[None]):
             phase = event.data.get("phase")
             if phase:
                 self._phase = str(phase)
-            if event.data.get("resolved_host"):
-                self._resolved_host = str(event.data["resolved_host"])
             if event.data.get("scan_engine"):
                 self._effective_scan_engine = str(event.data["scan_engine"])
             if event.data.get("banner_engine"):
                 self._effective_banner_engine = str(event.data["banner_engine"])
             channel = "SERVICE" if self._phase == "service-detection" else "SCAN"
-            self._write_event(channel, event.message)
+            self._write_event(channel, context + event.message)
             self._refresh_dashboard()
             return
 
         if event.kind == ScanEventType.OPEN_PORT and event.result is not None:
             self._open_ports += 1
-            self._write_finding(event.result)
-            self._update_evidence(event.result)
+            target = str(event.data.get("target") or event.result.target or "-")
+            resolved = str(
+                event.data.get("resolved_host") or event.result.address or "-"
+            )
+            self._write_finding(
+                event.result,
+                target=target,
+                resolved_host=resolved,
+            )
+            self._update_evidence(
+                event.result,
+                target=target,
+                resolved_host=resolved,
+            )
             self._write_event(
                 "OPEN",
                 (
-                    f"{event.result.port}/{event.result.protocol} "
+                    context
+                    + f"{event.result.port}/{event.result.protocol} "
                     f"{event.result.service or 'unknown'} "
                     f"rtt={event.result.response_time * 1000:.2f}ms"
                 ),
@@ -809,7 +1038,29 @@ class CicadaPortApp(App[None]):
             return
 
         if event.kind == ScanEventType.REPORT:
-            self._write_event("REPORT", event.message)
+            self._write_event("REPORT", context + event.message)
+            return
+
+        if event.kind == ScanEventType.TARGET_COMPLETE:
+            key = self._event_target_key(event)
+            if key not in self._completed_target_keys:
+                self._completed_target_keys.add(key)
+                self._completed_targets += 1
+            self._write_event("RESULT", context + "target complete")
+            self._refresh_dashboard()
+            return
+
+        if event.kind == ScanEventType.TARGET_FAILED:
+            key = self._event_target_key(event)
+            if key not in self._failed_target_keys:
+                self._failed_target_keys.add(key)
+                self._failed_targets += 1
+            failure = event.data.get("failure")
+            if failure is not None:
+                self._current_target = failure.target
+                self._resolved_host = failure.resolved_host or "-"
+            self._write_event("ERROR", context + event.message)
+            self._refresh_dashboard()
             return
 
         if event.kind == ScanEventType.COMPLETE:
@@ -817,6 +1068,7 @@ class CicadaPortApp(App[None]):
             self._last_outcome = outcome
             self._phase = "complete"
             self._resolved_host = outcome.resolved_host
+            self._current_target = outcome.target
             self._effective_scan_engine = outcome.scan_engine
             self._effective_banner_engine = outcome.banner_engine
             self._progress = 100.0
@@ -824,6 +1076,7 @@ class CicadaPortApp(App[None]):
             self._open_ports = outcome.statistics["open_ports"]
             self._closed_ports = outcome.statistics["closed_ports"]
             self._filtered_ports = outcome.statistics["filtered_ports"]
+            self._completed_targets = 1
             self._render_final_findings(outcome)
             self._write_event(
                 "RESULT",
@@ -837,11 +1090,35 @@ class CicadaPortApp(App[None]):
             self._orchestrator = None
             return
 
-        if event.kind == ScanEventType.CANCELLED:
-            self._phase = "cancelled"
-            self._write_event("CANCEL", event.message)
+        if event.kind == ScanEventType.BATCH_COMPLETE:
+            outcome = event.data["outcome"]
+            self._last_outcome = outcome
+            stats = outcome.statistics
+            self._phase = "complete"
+            self._progress = 100.0
+            self._requested_targets = stats["requested_targets"]
+            self._target_total = stats["resolved_targets"]
+            self._completed_targets = stats["completed_targets"]
+            self._failed_targets = stats["failed_targets"]
+            self._scanned_ports = stats["total_ports"]
+            self._total_ports = stats["total_ports"]
+            self._open_ports = stats["open_ports"]
+            self._closed_ports = stats["closed_ports"]
+            self._filtered_ports = stats["filtered_ports"]
+            self._current_target = "batch complete"
+            self._resolved_host = f"{stats['resolved_targets']} resolved"
+            self._render_final_batch(outcome)
+            self._write_event("RESULT", event.message)
             self._set_active(False)
             self._orchestrator = None
+            return
+
+        if event.kind == ScanEventType.CANCELLED:
+            self._phase = "cancelled"
+            self._write_event("CANCEL", context + event.message)
+            if not isinstance(self._request, ScanBatchRequest):
+                self._set_active(False)
+                self._orchestrator = None
 
     def on_orchestrator_failure(
         self,
@@ -852,7 +1129,20 @@ class CicadaPortApp(App[None]):
         self._set_active(False)
         self._orchestrator = None
 
+    def on_orchestrator_stopped(
+        self,
+        _message: OrchestratorStopped,
+    ) -> None:
+        self._phase = "cancelled"
+        if self._scan_active:
+            self._write_event(
+                "CANCEL",
+                "all active targets stopped cooperatively",
+            )
+            self._set_active(False)
+        self._orchestrator = None
 
-def launch_tui(request: ScanRequest) -> None:
+
+def launch_tui(request: TuiRequest) -> None:
     """Inicia el monitor TUI con una solicitud validada por la CLI."""
     CicadaPortApp(request=request, auto_start=True).run()

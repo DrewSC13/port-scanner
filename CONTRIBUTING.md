@@ -44,9 +44,9 @@ Before every commit, run:
 ./scripts/test_all.sh
 ```
 
-The full local validation must cover Python, Rust, Go, Bash, the bridges, and
-the localhost parity test. A commit must not be pushed while a required check
-is failing.
+The full local validation must cover Python, Rust, Go, Bash, the bridges, the
+localhost parity test, and both single-target and multi-target TUI contracts. A
+commit must not be pushed while a required check is failing.
 
 The focused commands used by CI are:
 
@@ -65,7 +65,12 @@ Run the Go commands from `go-banner/`.
 ## Result contract
 
 - CLI and TUI must consume `ScanOrchestrator`; presentation code must not
-  implement network scanning.
+  implement target parsing, resolution, concurrency, network scanning, banner
+  capture, or report persistence.
+- Single-target TUI sessions must dispatch through `ScanOrchestrator.run()`;
+  multi-target TUI sessions must dispatch through `ScanOrchestrator.run_many()`.
+- Every multi-target event rendered by the TUI must preserve the requested
+  target and resolved address. Partial failures must remain isolated and visible.
 - `safe`, `standard`, `deep`, and `custom` must remain deterministic and
   covered by tests.
 - Cancellation must propagate to Python workers and native subprocesses.

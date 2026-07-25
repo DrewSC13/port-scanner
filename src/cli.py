@@ -48,6 +48,8 @@ class PortScannerCLI:
                 "--banner-engine auto\n"
                 "  python main.py localhost --target 127.0.0.2 "
                 "--target-workers 2\n"
+                "  python main.py localhost --target 127.0.0.2 "
+                "--target-workers 2 --tui\n"
                 "  python main.py --target-file objetivos.txt "
                 "--exclude 127.0.0.2\n"
                 "  python main.py localhost --profile standard --tui"
@@ -273,13 +275,6 @@ class PortScannerCLI:
             print(
                 "Error: --target-workers debe estar entre 1 y "
                 f"{config.MAX_TARGET_WORKERS}."
-            )
-            return False
-
-        if getattr(args, "tui", False) and len(parsed_targets) != 1:
-            print(
-                "Error: --tui admite un único objetivo en este subhito. "
-                "Usa la salida de consola para sesiones multiobjetivo."
             )
             return False
 
@@ -559,7 +554,7 @@ class PortScannerCLI:
         print(console_report)
 
     @staticmethod
-    def _launch_tui(request: ScanRequest) -> None:
+    def _launch_tui(request: ScanRequest | ScanBatchRequest) -> None:
         try:
             from src.tui import launch_tui
         except ImportError as error:
@@ -571,6 +566,32 @@ class PortScannerCLI:
             raise
         launch_tui(request)
 
+    @staticmethod
+    def _uses_batch_contract(args, parsed_targets) -> bool:
+        """Decide si la solicitud necesita el contrato multiobjetivo."""
+        return bool(
+            getattr(args, "targets", ())
+            or getattr(args, "target_files", ())
+            or getattr(args, "exclusions", ())
+            or len(parsed_targets) > 1
+        )
+
+    @classmethod
+    def _build_tui_request(
+        cls,
+        args,
+    ) -> ScanRequest | ScanBatchRequest:
+        """Congela para el TUI la solicitud ya expandida y validada por la CLI."""
+        parsed_targets = tuple(getattr(args, "_parsed_targets", ()) or ())
+        request = ScanRequest.from_namespace(args)
+        if cls._uses_batch_contract(args, parsed_targets):
+            return ScanBatchRequest(
+                template=request,
+                targets=tuple(target.value for target in parsed_targets),
+                target_workers=args.target_workers,
+            )
+        return replace(request, host=parsed_targets[0].value)
+
     def run(self) -> None:
         """Valida la CLI y ejecuta salida lineal o monitor TUI."""
         args = self.parser.parse_args()
@@ -580,10 +601,7 @@ class PortScannerCLI:
 
         request = ScanRequest.from_namespace(args)
         if getattr(args, "tui", False):
-            parsed_targets = getattr(args, "_parsed_targets", None)
-            if parsed_targets:
-                request = replace(request, host=parsed_targets[0].value)
-            self._launch_tui(request)
+            self._launch_tui(self._build_tui_request(args))
             return
 
         presenter = ConsolePresenter(verbose=args.verbose)
@@ -598,12 +616,7 @@ class PortScannerCLI:
 
         try:
             parsed_targets = getattr(args, "_parsed_targets", ()) or ()
-            use_batch = bool(
-                getattr(args, "targets", ())
-                or getattr(args, "target_files", ())
-                or getattr(args, "exclusions", ())
-                or len(parsed_targets) > 1
-            )
+            use_batch = self._uses_batch_contract(args, parsed_targets)
             if use_batch:
                 batch_outcome = self._orchestrator.run_many(
                     ScanBatchRequest.from_namespace(args)

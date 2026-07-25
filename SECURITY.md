@@ -1,7 +1,9 @@
 # Security Policy
 
 CicadaPort is intended only for systems you own or are explicitly authorized
-to assess.
+to assess. Multi-target CLI and TUI sessions do not change that requirement:
+every expanded address, range, CIDR entry, and target-file record must remain
+inside the authorized scope.
 
 ## Supported versions
 
@@ -37,7 +39,7 @@ problem before public disclosure.
 
 ## Out of scope
 
-- scanning third-party systems without explicit authorization;
+- scanning one or many third-party systems without explicit authorization;
 - social engineering, denial of service, or destructive testing;
 - reports that only show an outdated dependency without a reachable impact;
 - vulnerabilities in an operating system or external service not caused by

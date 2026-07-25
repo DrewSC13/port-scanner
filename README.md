@@ -15,7 +15,7 @@ los banners solicitados.
 - **Múltiples Formatos**: Reportes en TXT, JSON, CSV y HTML
 - **Salida Dual**: Hallazgos ordenados en pantalla y reporte persistente
 - **CLI Profesional**: Interfaz de línea de comandos intuitiva y robusta
-- **TUI de Consola**: Dashboard terminal en vivo mediante `--tui`, sin lógica de red duplicada
+- **TUI Multiobjetivo**: Dashboard terminal en vivo para sesiones simples o por lotes, sin lógica de red duplicada
 - **Perfiles Reproducibles**: `safe`, `standard`, `deep` y `custom`
 - **Orquestación Multiobjetivo**: Rangos, CIDR, archivos y exclusiones con concurrencia acotada
 - **Banner Grabbing Explícito**: Solo con `--banner-grab`, mediante el motor Go
@@ -148,9 +148,11 @@ cicadaport --help
 ## TUI y perfiles
 
 La CLI es la fuente de configuración tanto para automatización como para la
-interfaz en vivo. El objetivo y todas las opciones se escriben primero en la
+interfaz en vivo. Los objetivos y todas las opciones se escriben primero en la
 consola; después, `--tui` abre el monitor dentro de esa misma terminal e inicia
-el escaneo automáticamente:
+la solicitud inmutable automáticamente. El TUI consume `ScanOrchestrator.run()`
+para una dirección y `ScanOrchestrator.run_many()` para sesiones multiobjetivo;
+no reimplementa resolución, concurrencia, escaneo, banners ni reportes:
 
 ```bash
 cicadaport 192.168.1.10 --profile standard --tui
@@ -184,9 +186,17 @@ cicadaport 192.168.1.10 --profile safe --tui
 # TCP completo, enumeración de servicios y reporte JSON
 cicadaport 192.168.1.10 --profile deep --format json --tui
 
-# Rango y salida definidos manualmente con los motores obligatorios
+# Rango de puertos definido manualmente con los motores obligatorios
 cicadaport 192.168.1.10 --profile custom -p 20-443 \
   --engine rust --banner-grab --banner-engine go --tui
+
+# Dos objetivos locales con progreso global y reportes independientes
+cicadaport 127.0.0.1 --target 127.0.0.2 \
+  -p 4444 --threads 4 --target-workers 2 --tui
+
+# Rango de objetivos con exclusión monitorizado desde el dashboard
+cicadaport 127.0.0.1-127.0.0.4 --exclude 127.0.0.3 \
+  -p 20-25 --threads 6 --target-workers 2 --tui
 ```
 
 Atajos disponibles dentro del monitor:
@@ -200,7 +210,10 @@ Atajos disponibles dentro del monitor:
 | `Q` o `F10` | Sale del monitor |
 
 Al terminar, la pantalla conserva los hallazgos ordenados, estadísticas,
-evidencia disponible y la ruta exacta del reporte.
+evidencia disponible y las rutas de los reportes. En sesiones multiobjetivo,
+cada endpoint muestra el objetivo solicitado y la dirección resuelta; el panel
+de ejecución mantiene contadores de objetivos activos, completados y fallidos,
+y el resumen final conserva los resultados correctos aunque otro objetivo falle.
 
 Los perfiles fijan valores reproducibles, pero las opciones manuales siguen
 teniendo prioridad:
@@ -256,9 +269,18 @@ objetivos solicitados, direcciones resueltas, éxitos, fallos, hallazgos y
 presupuesto efectivo de concurrencia. Si al menos un objetivo falla, los
 reportes correctos se conservan y la CLI termina con código `2`.
 
-El TUI permanece deliberadamente limitado a un objetivo durante este subhito;
-las sesiones multiobjetivo usan la salida de consola. Esta restricción evita
-mezclar estados visuales mientras el núcleo consolida varios motores Rust y Go.
+El TUI admite el mismo contrato multiobjetivo que la salida lineal. El
+progreso global, los fallos parciales y la identidad de cada endpoint proceden
+de los eventos emitidos por `ScanOrchestrator.run_many()`. `F5` repite el lote
+inmutable completo y `Ctrl+X` propaga la cancelación cooperativa a todos los
+motores activos. Los parámetros continúan bloqueados desde la CLI: el dashboard
+monitoriza la sesión, pero no edita objetivos ni opciones durante la ejecución.
+
+```bash
+# Monitor multiobjetivo con presupuesto global de cuatro hilos
+cicadaport 127.0.0.1 --target 127.0.0.2 \
+  -p 4444 --threads 4 --target-workers 2 --tui
+```
 
 ## Uso seguro del banner grabbing
 
