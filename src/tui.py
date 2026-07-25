@@ -629,6 +629,22 @@ class CicadaPortApp(App[None]):
         self._refresh_session()
 
     def _refresh_runtime(self) -> None:
+        required_widgets = (
+            "#topbar",
+            "#activity-signals",
+            "#metric-rate",
+            "#metric-open",
+            "#metric-closed",
+            "#metric-filtered",
+            "#activity-progress",
+            "#session",
+        )
+        if any(
+            self.query_one_optional(selector) is None
+            for selector in required_widgets
+        ):
+            return
+
         self._refresh_topbar()
         self._refresh_activity()
         self._refresh_session()
