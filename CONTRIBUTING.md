@@ -12,6 +12,24 @@ on public targets.
 Security vulnerabilities must follow [SECURITY.md](SECURITY.md) and must not be
 submitted through a public issue or pull request.
 
+## Roadmap governance
+
+[ROADMAP.md](ROADMAP.md) is the normative index for completed work, transitional
+debt, dependencies, and the remaining Hito 3 sequence. A future entry marked
+`DEFINED` is planning, not implementation authorization.
+
+Roadmap changes must:
+
+- distinguish frozen facts from proposals;
+- preserve signed commit and tag references for closed subhitos;
+- update status only when the required evidence exists;
+- keep Hito 4 blocked until a separate formal authorization;
+- remain atomic, signed, reviewable, and fully green in CI.
+
+A functional subhito must update the affected documentation as part of its
+controlled closing flow. Do not combine unrelated roadmap changes with
+unapproved implementation work.
+
 ## Development setup
 
 Required toolchains:

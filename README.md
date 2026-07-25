@@ -23,6 +23,14 @@ los banners solicitados.
 - **Validación Avanzada**: Verificación completa de entradas y configuraciones
 - **Estadísticas Detalladas**: Métricas completas del escaneo
 
+## Estado técnico y hoja de ruta
+
+El estado congelado, la deuda transitoria clasificada, los subhitos restantes
+del Hito 3 y su puerta formal de cierre se mantienen en
+[ROADMAP.md](ROADMAP.md). La presencia de un subhito futuro en esa hoja lo deja
+`DEFINED`, pero no autoriza su implementación: cada apertura requiere un
+contrato provisional y una aprobación expresa.
+
 ## Contratos avanzados de objetivos y evidencia
 
 El núcleo define un contrato versionado independiente de la interfaz. Cada
