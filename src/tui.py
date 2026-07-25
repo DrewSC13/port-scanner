@@ -16,6 +16,7 @@ from textual.widgets import RichLog, Static
 from textual.worker import Worker
 
 from config import config
+from src.contracts import PortState
 from src.errors import ScanCancelledError
 from src.events import ScanEvent, ScanEventType
 from src.network import NetworkUtils
@@ -224,6 +225,14 @@ class CicadaPortApp(App[None]):
         "RESULT": "#cbd5e1",
     }
     GRAPH_CHARS = "▁▂▃▄▅▆▇█"
+    FILTERED_STATES = frozenset(
+        {
+            PortState.FILTERED,
+            PortState.UNFILTERED,
+            PortState.OPEN_FILTERED,
+            PortState.CLOSED_FILTERED,
+        }
+    )
 
     def __init__(
         self,
@@ -264,7 +273,7 @@ class CicadaPortApp(App[None]):
         self._last_outcome: Optional[TuiOutcome] = None
         self._last_result: Optional[ScanResult] = None
         self._latency_samples: Deque[float] = deque(maxlen=76)
-        self._state_samples: Deque[Optional[bool]] = deque(maxlen=76)
+        self._state_samples: Deque[PortState] = deque(maxlen=76)
         self._session_id = datetime.now().strftime("%y%m%d-%H%M%S")
 
     def compose(self) -> ComposeResult:
@@ -415,9 +424,9 @@ class CicadaPortApp(App[None]):
         states = list(self._state_samples)[-width:]
         cells = []
         for state in states:
-            if state is True:
+            if state is PortState.OPEN:
                 cells.append("[bold #2dd4bf]◆[/]")
-            elif state is None:
+            elif state in self.FILTERED_STATES:
                 cells.append("[#fbbf24]◆[/]")
             else:
                 cells.append("[#20465d]·[/]")
@@ -900,7 +909,11 @@ class CicadaPortApp(App[None]):
         )
 
     def _render_final_findings(self, outcome: ScanOutcome) -> None:
-        open_results = [result for result in outcome.results if result.is_open is True]
+        open_results = [
+            result
+            for result in outcome.results
+            if result.state is PortState.OPEN
+        ]
         self._render_findings_header()
         if not open_results:
             self._findings().write("[#55758d]No open endpoints detected.[/]")
@@ -941,7 +954,7 @@ class CicadaPortApp(App[None]):
         open_count = 0
         for target_outcome in outcome.outcomes:
             for result in target_outcome.results:
-                if result.is_open is True:
+                if result.state is PortState.OPEN:
                     open_count += 1
                     self._write_finding(
                         result,
@@ -1004,10 +1017,10 @@ class CicadaPortApp(App[None]):
                 self._latency_samples.append(
                     max(0.0, event.result.response_time * 1000.0)
                 )
-                self._state_samples.append(event.result.is_open)
-                if event.result.is_open is None:
+                self._state_samples.append(event.result.state)
+                if event.result.state in self.FILTERED_STATES:
                     self._filtered_ports += 1
-                elif event.result.is_open is not True:
+                elif event.result.state is PortState.CLOSED:
                     self._closed_ports += 1
             self._refresh_activity()
             return

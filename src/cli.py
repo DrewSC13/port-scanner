@@ -12,6 +12,7 @@ from config import config
 from src.banner import BannerGrabber
 from src.bridge_go import GoBannerBridge
 from src.bridge_rust import RustScannerBridge
+from src.contracts import PortState
 from src.errors import ScanCancelledError, SpecializedFlowError
 from src.network import NetworkUtils
 from src.orchestrator import (
@@ -387,7 +388,7 @@ class PortScannerCLI:
         timeout: float,
     ) -> List[ScanResult]:
         """Obtiene banners Python para resultados abiertos."""
-        open_results = [result for result in results if result.is_open is True]
+        open_results = [result for result in results if result.state is PortState.OPEN]
         if not open_results:
             return results
 
@@ -437,7 +438,11 @@ class PortScannerCLI:
         timeout: float,
     ) -> List[ScanResult]:
         """Obtiene banners Go para resultados abiertos."""
-        open_ports = [result.port for result in results if result.is_open is True]
+        open_ports = [
+            result.port
+            for result in results
+            if result.state is PortState.OPEN
+        ]
         if not open_ports:
             return results
 

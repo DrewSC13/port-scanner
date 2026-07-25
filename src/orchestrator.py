@@ -436,7 +436,7 @@ class ScanOrchestrator:
         results: List[ScanResult],
         timeout: float,
     ) -> List[ScanResult]:
-        open_results = [result for result in results if result.is_open is True]
+        open_results = [result for result in results if result.state is PortState.OPEN]
         if not open_results:
             return results
 
@@ -478,7 +478,11 @@ class ScanOrchestrator:
         results: List[ScanResult],
         timeout: float,
     ) -> List[ScanResult]:
-        open_ports = [result.port for result in results if result.is_open is True]
+        open_ports = [
+            result.port
+            for result in results
+            if result.state is PortState.OPEN
+        ]
         if not open_ports:
             return results
 
@@ -680,7 +684,7 @@ class ScanOrchestrator:
                 data=target_data,
                 event_callback=event_callback,
             )
-            if result.is_open is True:
+            if result.state is PortState.OPEN:
                 self._emit(
                     ScanEventType.OPEN_PORT,
                     progress=progress,
