@@ -178,24 +178,30 @@ etiquetado, apertura de 3.2.11, apertura de 3.2.12 ni inicio del Hito 4.
 
 ### Subhito 3.2.11 — Preparación de release candidate y soporte verificable
 
-**Estado:** `IN_IMPLEMENTATION`
-**Dependencia:** 3.2.10 `CLOSED_FROZEN`.
-**Contrato aprobado:** `CRC-CICADAPORT-3.2.11-001`, versión `1.0-CANDIDATA`.
-**Base:** `main@5229329b05a354be953cd885ca46ea0a84b7cada`.
+**Estado:** `CLOSED_FROZEN`
+**Contrato:** `CRC-CICADAPORT-3.2.11-001`.
+**Commit definitivo:** `9d3d75112a49e8608c4cb4619b244372c08ae077`.
+**Etiqueta institucional:** `subhito-3.2.11`.
+**Objeto de etiqueta:** `253730beb5a1a92d2a6f451fac186ac16ed5b1c8`.
+**Release candidate:** `v3.0.0-rc.1`.
+**GitHub prerelease:** `359906616`.
 
-Decisiones autorizadas:
+Resultado congelado:
 
 - SemVer `3.0.0-rc.1` (`3.0.0rc1` en Python) con fuente única;
 - contratos JSONL v1 preservados;
 - soporte RC1 limitado a Linux x86_64, Ubuntu 22.04/24.04 y Python 3.10-3.13;
 - Rust 1.97.1 y Go 1.26.5;
-- wheel nativo, sdist, hashes, inventario e instalación aislada;
-- sin etiquetas o prerelease durante la implementación local.
+- wheel, sdist, hashes, inventario e instalación aislada;
+- etiquetas RC e institucional publicadas y verificadas.
 
 ### Subhito 3.2.12 — Auditoría de cierre y congelamiento del Hito 3
 
-**Estado:** `DEFINED`
+**Estado:** `IN_IMPLEMENTATION`
 **Dependencia:** 3.2.8–3.2.11 `CLOSED_FROZEN`.
+**Contrato aprobado:** `ACCH-CICADAPORT-3.2.12-001`, versión `1.0-CANDIDATA`.
+**Base:** `main@9d3d75112a49e8608c4cb4619b244372c08ae077`.
+**Rama:** `feat/subhito-3.2.12-auditoria-cierre-hito-3`.
 
 Objetivo:
 
@@ -205,6 +211,7 @@ Objetivo:
 - producir la evidencia de cierre del Hito 3;
 - congelar el resultado mediante commit y etiqueta firmados.
 
+La primera etapa no autoriza staging, commit, push, integración ni etiquetado.
 Este subhito no inicia el Hito 4.
 
 ## Dependencias
@@ -273,10 +280,54 @@ Arquitecto del Proyecto.
 
 ## Siguiente acción formal
 
-La única acción habilitada es implementar y validar localmente el Subhito 3.2.11
-bajo `CRC-CICADAPORT-3.2.11-001`, en la rama
-`feat/subhito-3.2.11-release-candidate-support`, sin staging, commit, push,
-integración, etiquetas ni publicación de prerelease.
+La única acción habilitada es ejecutar la primera etapa del Subhito 3.2.12 bajo
+`ACCH-CICADAPORT-3.2.12-001`, versión `1.0-CANDIDATA`, en la rama `feat/subhito-3.2.12-auditoria-cierre-hito-3`.
 
-El Subhito 3.2.12 permanece bloqueado. El Hito 4 permanece `BLOCKED` y
+La etapa se limita a inventario, contrato, matrices, actualización documental y
+diagnósticos. No autoriza staging, commit, push, integración ni etiquetado.
+
+El Hito 4 permanece `BLOCKED` y `NOT_STARTED`.
+
+## Registro de aceptación histórica del Hito 3
+
+<!-- DECISION-ID: ACCH-3.2.12-HIST-001 -->
+
+Para la auditoría del Subhito 3.2.12 se aceptan como cierres históricos no
+bloqueantes los Subhitos 3.2.1, 3.2.2 y 3.2.3, sin crear etiquetas
+retroactivas.
+
+El caso 3.2.2 incluye una excepción limitada al merge histórico sin firma local
+`2c47f13939b17603ecda3f816293e1ed4cbab50b`, verificado por GitHub, con CI
+satisfactorio y ascendencia demostrada. La excepción no se extiende a ningún
+otro commit o subhito.
+
+El estado resultante es:
+
+- `HISTORICAL_DISCREPANCIES_OPEN=0`;
+- `RETROACTIVE_TAGS_REQUIRED=0`;
+- `HISTORY_REWRITES_REQUIRED=0`.
+
+El Subhito 3.2.12 continúa `IN_IMPLEMENTATION`. El Hito 4 continúa `BLOCKED` y
 `NOT_STARTED`.
+
+<!-- BEGIN ACCH-3.2.12-STAGE2 -->
+## Segunda etapa del Subhito 3.2.12 — consolidada
+
+**Estado:** `COMPLETED_READY_FOR_STAGING_AUTHORIZATION`
+
+- Deuda técnica: `DT-01..DT-06=CLOSED`.
+- Controles aprobados: `C01..C09`, `C11`, `C12`.
+- Control pendiente por diseño: `C10`.
+- Discrepancias abiertas: `0`.
+- Divergencias funcionales reproducibles: `0`.
+- Cambios de código ejecutable: `0`.
+- Staging: `EMPTY`.
+- Commits: `0`.
+- Pushes: `0`.
+- Etiquetas: `0`.
+- Operaciones remotas de escritura: `0`.
+
+El Subhito 3.2.12 permanece `IN_IMPLEMENTATION`. La siguiente puerta formal es
+la revisión y autorización separada del staging y commit firmado. El Hito 4
+permanece `BLOCKED` y `NOT_STARTED`.
+<!-- END ACCH-3.2.12-STAGE2 -->
