@@ -71,16 +71,27 @@ SHA-256 reproducible sobre JSON determinista.
 
 ## 13. Checkpoints
 
-`SessionCheckpoint` v1 valida snapshots en memoria. Todavía no escribe archivos
-ni se conecta al orquestador. Rechaza versiones incompatibles, campos
-inesperados, JSON corrupto, resultados incoherentes y cobertura incompleta de
-puertos.
+SUBTASK 4.2 añade un almacén local programático para una sesión y un endpoint.
+Cada generación contiene un `SessionCheckpoint` y un `SessionManifest`; el
+puntero `CURRENT.json` solo cambia después de escribir, sincronizar y verificar
+la nueva generación. Los hashes SHA-256, las versiones, el fingerprint del plan
+y la estructura completa se validan al cargar.
+
+Los archivos se crean dentro de un directorio dedicado con permisos
+restrictivos. Las generaciones confirmadas son inmutables y una generación
+huérfana no sustituye la última confirmada.
 
 ## 14. Reanudación
 
-La reanudación real no está implementada en SUBTASK 4.1. No deben crearse
-automatizaciones que dependan de `--resume` hasta que una SUBTASK posterior la
-implemente, pruebe y documente.
+La reanudación monoobjetivo está disponible mediante la API interna
+`SingleTargetSessionRunner`. No existe todavía una opción pública `--resume`.
+El runner entrega al motor Rust únicamente los puertos pendientes, confirma un
+checkpoint después de cada resultado y omite los puertos ya completados.
+
+Cuando se solicitaron banners, Go procesa únicamente puertos abiertos aún no
+contabilizados. Una cancelación conserva el progreso confirmado y una llamada
+posterior a `resume()` continúa desde ese estado. Reanudar una sesión ya
+`completed` no ejecuta red ni altera el checkpoint.
 
 ## 15. Manifiestos
 
@@ -95,35 +106,52 @@ checkpoint preservan el contrato canónico: `state`, `evidence.reason` e
 
 ## 17. Códigos de salida
 
-SUBTASK 4.1 no cambia códigos de salida ni manejo público de errores.
+SUBTASK 4.2 no cambia códigos de salida públicos. La API programática distingue
+checkpoint ausente, corrupción, incompatibilidad, persistencia, alcance y fallo
+de ejecución mediante excepciones específicas.
 
 ## 18. Solución de problemas
 
-Un documento de sesión rechazado debe revisarse por versión, campos desconocidos,
-UUID, timestamps UTC, puertos, endpoints, motores y coherencia de resultados.
+Si una sesión no carga, revisa en este orden:
+
+1. que `CURRENT.json` sea un archivo regular y UTF-8 válido;
+2. que sus nombres de generación coincidan con `sequence`;
+3. que los SHA-256 coincidan;
+4. que checkpoint y manifiesto sean versión 1;
+5. que el manifiesto vuelva a derivarse exactamente del checkpoint;
+6. que el fingerprint corresponda al plan esperado;
+7. que el plan tenga un objetivo, un endpoint y `target_workers=1`.
+
+No edites manualmente una generación para intentar repararla. Conserva la
+evidencia y clasifica la divergencia.
 
 ## 19. Limitaciones conocidas
 
-- no existe persistencia de checkpoints;
-- no existe reanudación real;
-- no existen opciones CLI de sesión;
+- la persistencia y reanudación solo están disponibles mediante API interna;
+- no existen todavía `--resume` ni `--session-dir`;
+- no existe reanudación multiobjetivo;
 - no existe integración TUI de sesión;
-- no se modificaron Rust ni Go.
+- no existen eventos JSONL públicos ni `--print-plan`;
+- Rust y Go no fueron modificados.
 
 ## 20. Privacidad y datos
 
-Los modelos no almacenan credenciales. Los futuros archivos de sesión podrán
-contener objetivos, direcciones, puertos y resultados, por lo que deberán
-tratarse como información de auditoría potencialmente sensible.
+Los archivos de sesión no almacenan credenciales, pero sí pueden contener
+objetivos, direcciones, puertos, estados, banners y diagnósticos. Trátalos como
+evidencia de auditoría potencialmente sensible. El almacén usa permisos `0700`
+y documentos `0600`; no debe ubicarse en una carpeta pública o compartida sin
+controles adicionales.
 
 ## 21. Compatibilidad
 
 ```text
-MANUAL_VERSION=0.1-TASK-4.1
+MANUAL_VERSION=0.2-TASK-4.2
 PRODUCT_VERSION=3.0.0-rc.1
-BASE_COMMIT=84dd1f1eafb684b5afccd7ad647781d8a5b4b459
+BASE_COMMIT=8229202c5c9ea508961039fdf6de432aeb76f212
 TASK=4
-SUBTASK=4.1
+SUBTASK=4.2
+PUBLIC_CLI_RESUME=NOT_AVAILABLE
+PROGRAMMATIC_SINGLE_TARGET_RESUME=AVAILABLE
 ```
 
 ## 22. Historial evolutivo
@@ -131,11 +159,14 @@ SUBTASK=4.1
 | Manual | Producto | Task | Subtask | Cambio |
 |---|---|---|---|---|
 | `0.1-TASK-4.1` | `3.0.0-rc.1` | 4 | 4.1 | Modelos ejecutables de plan, checkpoint y manifiesto; sin integración pública. |
+| `0.2-TASK-4.2` | `3.0.0-rc.1` | 4 | 4.2 | Persistencia atómica y reanudación monoobjetivo programática; CLI aún no expuesta. |
 
 ## 23. Preguntas frecuentes
 
-**¿Ya puedo reanudar un escaneo?** No. SUBTASK 4.1 establece y prueba los
-contratos internos; la ejecución reanudable se implementará después.
+**¿Ya puedo reanudar un escaneo?** Programáticamente, sí, para una sesión con
+un objetivo mediante `SingleTargetSessionRunner`. Desde la CLI instalada,
+todavía no: `--resume` y `--session-dir` permanecen fuera de la superficie
+pública.
 
 **¿Cambió el escaneo TCP?** No. Rust y los contratos JSONL v1 permanecen
 intactos.
@@ -146,3 +177,6 @@ intactos.
 - **Checkpoint:** snapshot validado del progreso.
 - **Manifiesto:** resumen derivado y verificable de una sesión.
 - **Fingerprint:** SHA-256 del JSON canónico del plan.
+- **Generación:** pareja inmutable de checkpoint y manifiesto con una secuencia.
+- **CURRENT.json:** puntero atómico a la última generación confirmada.
+- **Reanudación idempotente:** continuación que omite trabajo ya confirmado.
