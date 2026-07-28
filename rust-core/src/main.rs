@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::env;
+use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::process;
@@ -9,6 +10,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const CONTRACT_VERSION: u8 = 1;
+const NATIVE_EVENT_FD_ENV: &str = "CICADAPORT_NATIVE_EVENT_FD";
 
 #[derive(Debug, Clone)]
 struct AppConfig {
@@ -71,6 +73,103 @@ struct ScanResult {
     response_time: f64,
     is_open: Option<bool>,
     evidence: ScanEvidence,
+}
+
+#[derive(Debug, Serialize)]
+struct NativeEvent {
+    contract_version: u8,
+    record_type: &'static str,
+    engine: &'static str,
+    phase: &'static str,
+    event: String,
+    target: String,
+    sequence: u64,
+    elapsed_ms: u64,
+    port: Option<u16>,
+    status: String,
+    completed: usize,
+    total: usize,
+    workers: usize,
+}
+struct NativeEventEmitter {
+    writer: Option<File>,
+    started: Instant,
+    sequence: u64,
+    target: String,
+    total: usize,
+    workers: usize,
+}
+impl NativeEventEmitter {
+    fn from_env(config: &AppConfig) -> Result<Self, String> {
+        let writer = match env::var_os(NATIVE_EVENT_FD_ENV) {
+            None => None,
+            Some(raw) => {
+                let raw = raw
+                    .into_string()
+                    .map_err(|_| "CICADAPORT_NATIVE_EVENT_FD no es UTF-8".to_string())?;
+                let fd: i32 = raw
+                    .parse()
+                    .map_err(|_| "CICADAPORT_NATIVE_EVENT_FD no es entero".to_string())?;
+                if fd < 3 {
+                    return Err("descriptor native_event inválido".to_string());
+                }
+                Some(
+                    OpenOptions::new()
+                        .write(true)
+                        .open(format!("/proc/self/fd/{fd}"))
+                        .map_err(|e| format!("No se pudo abrir native_event: {e}"))?,
+                )
+            }
+        };
+        Ok(Self {
+            writer,
+            started: Instant::now(),
+            sequence: 0,
+            target: config.host.clone(),
+            total: config.ports.len(),
+            workers: config.workers,
+        })
+    }
+    fn emit(
+        &mut self,
+        event: &str,
+        status: &str,
+        port: Option<u16>,
+        completed: usize,
+    ) -> Result<(), String> {
+        let Some(writer) = self.writer.as_mut() else {
+            return Ok(());
+        };
+        self.sequence += 1;
+        let payload = NativeEvent {
+            contract_version: CONTRACT_VERSION,
+            record_type: "native_event",
+            engine: "rust",
+            phase: "tcp_scan",
+            event: event.to_string(),
+            target: self.target.clone(),
+            sequence: self.sequence,
+            elapsed_ms: self
+                .started
+                .elapsed()
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX),
+            port,
+            status: status.to_string(),
+            completed,
+            total: self.total,
+            workers: self.workers,
+        };
+        serde_json::to_writer(&mut *writer, &payload)
+            .map_err(|e| format!("Error serializando native_event Rust: {e}"))?;
+        writer
+            .write_all(b"\n")
+            .map_err(|e| format!("Error escribiendo native_event Rust: {e}"))?;
+        writer
+            .flush()
+            .map_err(|e| format!("Error vaciando native_event Rust: {e}"))
+    }
 }
 
 fn print_error_and_exit(message: &str, exit_code: i32) -> ! {
@@ -333,6 +432,8 @@ fn write_jsonl_record<W: Write>(writer: &mut W, result: &ScanResult) -> Result<(
 fn run_scan<W: Write>(config: AppConfig, writer: &mut W) -> Result<(), String> {
     let timeout = Duration::from_millis(config.timeout_ms);
     let expected_results = config.ports.len();
+    let mut events = NativeEventEmitter::from_env(&config)?;
+    events.emit("engine_started", "running", None, 0)?;
     let host = Arc::new(config.host);
     let queue = Arc::new(Mutex::new(VecDeque::from(config.ports)));
     let (sender, receiver) = mpsc::channel::<ScanResult>();
@@ -371,8 +472,11 @@ fn run_scan<W: Write>(config: AppConfig, writer: &mut W) -> Result<(), String> {
 
     let mut emitted_results = 0;
     for result in receiver {
+        let port = result.port;
+        let status = result.state;
         write_jsonl_record(writer, &result)?;
         emitted_results += 1;
+        events.emit("port_completed", status, Some(port), emitted_results)?;
     }
 
     for handle in handles {
@@ -389,6 +493,7 @@ fn run_scan<W: Write>(config: AppConfig, writer: &mut W) -> Result<(), String> {
         ));
     }
 
+    events.emit("engine_completed", "success", None, emitted_results)?;
     Ok(())
 }
 
@@ -416,7 +521,7 @@ fn main() {
 mod tests {
     use super::{
         parse_invocation, parse_scan_request, resolve_socket_addr, write_jsonl_record, Invocation,
-        ScanEvidence, ScanResult, CONTRACT_VERSION, HELP_TEXT,
+        NativeEvent, ScanEvidence, ScanResult, CONTRACT_VERSION, HELP_TEXT,
     };
 
     #[test]
@@ -536,5 +641,28 @@ mod tests {
     fn resolves_bracketed_ipv6_literal() {
         let address = resolve_socket_addr("[::1]", 443).expect("IPv6 válida");
         assert!(address.is_ipv6());
+    }
+
+    #[test]
+    fn serializes_native_event_v1() {
+        let value = serde_json::to_value(NativeEvent {
+            contract_version: 1,
+            record_type: "native_event",
+            engine: "rust",
+            phase: "tcp_scan",
+            event: "port_completed".to_string(),
+            target: "127.0.0.1".to_string(),
+            sequence: 2,
+            elapsed_ms: 1,
+            port: Some(80),
+            status: "open".to_string(),
+            completed: 1,
+            total: 1,
+            workers: 1,
+        })
+        .unwrap();
+        assert_eq!(value["record_type"], "native_event");
+        assert_eq!(value["engine"], "rust");
+        assert_eq!(value["port"], 80);
     }
 }

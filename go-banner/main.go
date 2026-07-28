@@ -19,6 +19,7 @@ const (
 	maxBannerRead        = 1024
 	maxBannerOutputRunes = 300
 	maxBannerWorkers     = 32
+	nativeEventFDEnv     = "CICADAPORT_NATIVE_EVENT_FD"
 	helpText             = "Usage: go-banner --request-stdin\n\nOpciones:\n  --request-stdin  Lee una solicitud banner_request v1 completa desde stdin.\n  --help           Muestra esta ayuda y termina.\n"
 )
 
@@ -47,6 +48,65 @@ type BannerResult struct {
 	Banner          *string `json:"banner"`
 	Error           *string `json:"error"`
 	Source          string  `json:"source"`
+}
+
+type NativeEvent struct {
+	ContractVersion int    `json:"contract_version"`
+	RecordType      string `json:"record_type"`
+	Engine          string `json:"engine"`
+	Phase           string `json:"phase"`
+	Event           string `json:"event"`
+	Target          string `json:"target"`
+	Sequence        int    `json:"sequence"`
+	ElapsedMS       int64  `json:"elapsed_ms"`
+	Port            *int   `json:"port"`
+	Status          string `json:"status"`
+	Completed       int    `json:"completed"`
+	Total           int    `json:"total"`
+	Workers         int    `json:"workers"`
+}
+type nativeEventWriter struct {
+	encoder  *json.Encoder
+	file     *os.File
+	started  time.Time
+	sequence int
+	target   string
+	total    int
+	workers  int
+}
+
+func newNativeEventWriter(w io.Writer, target string, total, workers int) *nativeEventWriter {
+	return &nativeEventWriter{encoder: json.NewEncoder(w), started: time.Now(), target: target, total: total, workers: workers}
+}
+func nativeEventWriterFromEnv(target string, total, workers int) (*nativeEventWriter, error) {
+	raw := os.Getenv(nativeEventFDEnv)
+	if raw == "" {
+		return nil, nil
+	}
+	fd, err := strconv.Atoi(raw)
+	if err != nil || fd < 3 {
+		return nil, fmt.Errorf("%s debe ser descriptor heredado", nativeEventFDEnv)
+	}
+	file := os.NewFile(uintptr(fd), "cicadaport-native-event")
+	if file == nil {
+		return nil, fmt.Errorf("no se pudo abrir native_event")
+	}
+	w := newNativeEventWriter(file, target, total, workers)
+	w.file = file
+	return w, nil
+}
+func (w *nativeEventWriter) close() error {
+	if w == nil || w.file == nil {
+		return nil
+	}
+	return w.file.Close()
+}
+func (w *nativeEventWriter) emit(event, status string, port *int, completed int) error {
+	if w == nil {
+		return nil
+	}
+	w.sequence++
+	return w.encoder.Encode(NativeEvent{ContractVersion: contractVersion, RecordType: "native_event", Engine: "go", Phase: "banner_grab", Event: event, Target: w.target, Sequence: w.sequence, ElapsedMS: time.Since(w.started).Milliseconds(), Port: port, Status: status, Completed: completed, Total: w.total, Workers: w.workers})
 }
 
 func serviceName(port int) string {
@@ -312,42 +372,47 @@ func grabBanner(host string, port int, timeout time.Duration) BannerResult {
 	return result
 }
 
-func grabBanners(host string, ports []int, timeout time.Duration) []BannerResult {
+func grabBannersObserved(host string, ports []int, timeout time.Duration, events *nativeEventWriter) ([]BannerResult, error) {
 	results := make([]BannerResult, 0, len(ports))
 	resultsChannel := make(chan BannerResult, len(ports))
 	portsChannel := make(chan int, len(ports))
-
 	var wg sync.WaitGroup
-
 	for _, port := range ports {
 		portsChannel <- port
 	}
 	close(portsChannel)
-
 	workerCount := min(maxBannerWorkers, len(ports))
 	for range workerCount {
 		wg.Add(1)
-
 		go func() {
 			defer wg.Done()
-
-			for currentPort := range portsChannel {
-				resultsChannel <- grabBanner(host, currentPort, timeout)
+			for p := range portsChannel {
+				resultsChannel <- grabBanner(host, p, timeout)
 			}
 		}()
 	}
-
-	wg.Wait()
-	close(resultsChannel)
-
+	go func() { wg.Wait(); close(resultsChannel) }()
+	completed := 0
+	var eventErr error
 	for result := range resultsChannel {
 		results = append(results, result)
+		completed++
+		if eventErr == nil {
+			p := result.Port
+			eventErr = events.emit("port_completed", result.Status, &p, completed)
+		}
 	}
-
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Port < results[j].Port
-	})
-
+	sort.Slice(results, func(i, j int) bool { return results[i].Port < results[j].Port })
+	if eventErr != nil {
+		return nil, eventErr
+	}
+	return results, nil
+}
+func grabBanners(host string, ports []int, timeout time.Duration) []BannerResult {
+	results, err := grabBannersObserved(host, ports, timeout, nil)
+	if err != nil {
+		panic(err)
+	}
 	return results
 }
 
@@ -393,7 +458,28 @@ func run(
 	}
 
 	timeout := time.Duration(request.TimeoutMS) * time.Millisecond
-	results := grabBanners(request.Target, request.Ports, timeout)
+	workers := min(maxBannerWorkers, len(request.Ports))
+	events, err := nativeEventWriterFromEnv(request.Target, len(request.Ports), workers)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if events != nil {
+		defer events.close()
+	}
+	if err := events.emit("engine_started", "running", nil, 0); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	results, err := grabBannersObserved(request.Target, request.Ports, timeout, events)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if err := events.emit("engine_completed", "success", nil, len(results)); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	encoder := json.NewEncoder(stdout)
 	for _, result := range results {
 		if err := encoder.Encode(result); err != nil {

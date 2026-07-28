@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, IO, List, Optional
 from src.contracts import NativeScanRequest
 from src.errors import ScanCancelledError
 from src.native import resolve_native_binary
+from src.native_events import NativeEventCallback, NativeEventStream
 from src.scanner import ScanResult
 
 ResultCallback = Callable[[Dict[str, Any]], None]
@@ -280,15 +281,9 @@ class RustScannerBridge:
         workers: int = 100,
         cancel_event: Optional[threading.Event] = None,
         result_callback: Optional[ResultCallback] = None,
+        event_callback: Optional[NativeEventCallback] = None,
     ) -> List[Dict[str, Any]]:
-        """
-        Consume un registro ``port_result`` por cada puerto completado.
-
-        La lista de puertos viaja como una solicitud JSON por ``stdin``. El
-        callback se ejecuta inmediatamente después de validar cada línea, antes
-        de que el proceso Rust tenga que finalizar. La lista retornada conserva
-        el orden real de llegada; el núcleo ordena únicamente al consolidar.
-        """
+        """Consume resultados Rust y eventos internos opcionales."""
         if not self.is_available():
             raise FileNotFoundError(
                 f"Binario Rust no encontrado: {self.binary_path}. "
@@ -304,24 +299,43 @@ class RustScannerBridge:
             workers=workers,
         )
         normalized_ports = list(request_contract.ports)
+        effective_workers = min(512, request_contract.workers, len(normalized_ports))
 
-        command = [
-            str(self.binary_path),
-            "--request-stdin",
-        ]
-        request = request_contract.to_contract_dict()
+        event_stream = None
+        popen_kwargs: Dict[str, object] = {}
+        if event_callback is not None:
+            event_stream = NativeEventStream(
+                callback=event_callback,
+                engine="rust",
+                target=request_contract.target,
+                ports=normalized_ports,
+                workers=effective_workers,
+            )
+            event_stream.start()
+            popen_kwargs = event_stream.popen_kwargs()
 
-        process = subprocess.Popen(
-            command,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-        )
+        try:
+            process = subprocess.Popen(
+                [str(self.binary_path), "--request-stdin"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                **popen_kwargs,
+            )
+        except BaseException:
+            if event_stream is not None:
+                event_stream.abort()
+            raise
+
+        if event_stream is not None:
+            event_stream.parent_after_spawn()
 
         if cancel_event is not None and cancel_event.is_set():
             self._terminate_process(process)
+            if event_stream is not None:
+                event_stream.abort()
             self._close_stream(process.stdin)
             self._close_stream(process.stdout)
             self._close_stream(process.stderr)
@@ -329,6 +343,8 @@ class RustScannerBridge:
 
         if process.stdin is None or process.stdout is None or process.stderr is None:
             self._terminate_process(process)
+            if event_stream is not None:
+                event_stream.abort()
             raise RuntimeError("No se pudieron abrir las tuberías del motor Rust.")
 
         output_queue: "queue.Queue[StreamItem]" = queue.Queue()
@@ -350,14 +366,18 @@ class RustScannerBridge:
 
         try:
             try:
-                process.stdin.write(json.dumps(request, separators=(",", ":")) + "\n")
+                process.stdin.write(
+                    json.dumps(
+                        request_contract.to_contract_dict(),
+                        separators=(",", ":"),
+                    )
+                    + "\n"
+                )
                 process.stdin.flush()
                 process.stdin.close()
             except OSError as error:
                 if process.poll() is None:
                     self._terminate_process(process)
-                stdout_thread.join(timeout=1)
-                stderr_thread.join(timeout=1)
                 diagnostic = "".join(stderr_chunks).strip() or str(error)
                 raise RuntimeError(
                     f"Rust cerró stdin antes de recibir la solicitud: {diagnostic}"
@@ -372,12 +392,10 @@ class RustScannerBridge:
                 if cancel_event is not None and cancel_event.is_set():
                     self._terminate_process(process)
                     raise ScanCancelledError("Motor Rust cancelado por el usuario.")
-
                 try:
                     item_type, value = output_queue.get(timeout=0.1)
                 except queue.Empty:
                     continue
-
                 if item_type == "eof":
                     stdout_finished = True
                     continue
@@ -403,17 +421,13 @@ class RustScannerBridge:
                     raise RuntimeError(f"Rust devolvió el puerto no solicitado {port}.")
                 if port in completed_ports:
                     raise RuntimeError(f"Rust devolvió el puerto duplicado {port}.")
-
                 completed_ports.add(port)
                 results.append(record)
                 if result_callback is not None:
                     result_callback(record)
 
             return_code = self._wait_for_process(process, cancel_event)
-            stdout_thread.join(timeout=1)
-            stderr_thread.join(timeout=1)
             stderr = "".join(stderr_chunks).strip()
-
             if return_code != 0:
                 diagnostic = stderr or f"código de salida {return_code}"
                 raise RuntimeError(f"Error ejecutando motor Rust: {diagnostic}")
@@ -427,10 +441,14 @@ class RustScannerBridge:
                     f"{len(missing_ports)} puerto(s): {preview}{suffix}"
                 )
 
+            if event_stream is not None:
+                event_stream.finish()
             return results
         except BaseException:
             if process.poll() is None:
                 self._terminate_process(process)
+            if event_stream is not None:
+                event_stream.abort()
             raise
         finally:
             stdout_thread.join(timeout=1)

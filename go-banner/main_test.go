@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -268,5 +269,21 @@ func TestSanitizeBannerLimitsRunesWithoutBreakingUTF8(t *testing.T) {
 			utf8.RuneCountInString(got),
 			maxBannerOutputRunes,
 		)
+	}
+}
+
+func TestNativeEventWriterV1(t *testing.T) {
+	var out bytes.Buffer
+	w := newNativeEventWriter(&out, "127.0.0.1", 1, 1)
+	p := 80
+	if err := w.emit("port_completed", "captured", &p, 1); err != nil {
+		t.Fatal(err)
+	}
+	var e NativeEvent
+	if err := json.Unmarshal(out.Bytes(), &e); err != nil {
+		t.Fatal(err)
+	}
+	if e.RecordType != "native_event" || e.Engine != "go" || e.Port == nil || *e.Port != 80 {
+		t.Fatalf("evento inválido: %+v", e)
 	}
 }

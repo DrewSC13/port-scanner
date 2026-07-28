@@ -132,7 +132,7 @@ evidencia y clasifica la divergencia.
 - no existe reanudación multiobjetivo;
 - no existe integración TUI de sesión;
 - no existen eventos JSONL públicos ni `--print-plan`;
-- Rust y Go no fueron modificados.
+- Rust y Go emiten eventos internos solo cuando la API proporciona `event_callback`.
 
 ## 20. Privacidad y datos
 
@@ -145,11 +145,11 @@ controles adicionales.
 ## 21. Compatibilidad
 
 ```text
-MANUAL_VERSION=0.2-TASK-4.2
+MANUAL_VERSION=0.3-TASK-4.3
 PRODUCT_VERSION=3.0.0-rc.1
-BASE_COMMIT=8229202c5c9ea508961039fdf6de432aeb76f212
+BASE_COMMIT=8ae89824b1a5b7d06f6fbb95fd9da19684b48e2e
 TASK=4
-SUBTASK=4.2
+SUBTASK=4.3
 PUBLIC_CLI_RESUME=NOT_AVAILABLE
 PROGRAMMATIC_SINGLE_TARGET_RESUME=AVAILABLE
 ```
@@ -168,8 +168,7 @@ un objetivo mediante `SingleTargetSessionRunner`. Desde la CLI instalada,
 todavía no: `--resume` y `--session-dir` permanecen fuera de la superficie
 pública.
 
-**¿Cambió el escaneo TCP?** No. Rust y los contratos JSONL v1 permanecen
-intactos.
+**¿Cambió el escaneo TCP?** `port_result` v1 permanece intacto. Rust añade un canal interno opcional de observabilidad; Go hace lo mismo para banners. No existe `--events-jsonl`.
 
 ## 24. Glosario
 
