@@ -6,10 +6,9 @@ CicadaPort es una herramienta de auditoría autorizada con Python como
 orquestador, Rust como motor TCP obligatorio y Go como motor de banners cuando
 se solicita esa fase.
 
-Este manual evoluciona con TASK 4. En SUBTASK 4.1 se incorporaron contratos
-internos ejecutables para planes, checkpoints y manifiestos. **Todavía no existe
-una opción pública para guardar o reanudar sesiones.** Esa integración pertenece
-a SUBTASK posteriores y no debe inferirse de los modelos internos.
+TASK 4 incorpora contratos, persistencia y observabilidad verificables. En
+SUBTASK 4.4 la CLI pública integra sesiones monoobjetivo y monoendpoint sin
+modificar esos formatos ni alterar el flujo heredado.
 
 ## 2. Seguridad y uso autorizado
 
@@ -29,13 +28,32 @@ compilar los motores nativos obligatorios.
 
 ## 5. Inicio rápido
 
-La interfaz pública vigente continúa siendo `cicadaport`. SUBTASK 4.1 no añade
-opciones CLI y no altera los comandos existentes.
+La interfaz pública continúa siendo `cicadaport`. Sin opciones de sesión, los
+comandos existentes mantienen el flujo heredado.
+
+Para crear una sesión:
+
+```bash
+cicadaport 127.0.0.1 -p 80,443 --session-dir ./sesion
+```
+
+Para reanudarla:
+
+```bash
+cicadaport --resume --session-dir ./sesion
+```
 
 ## 6. Referencia del CLI
 
-Usa `cicadaport --help` como fuente operativa. Las opciones de sesión y
-reanudación no están disponibles todavía.
+Usa `cicadaport --help` como fuente operativa. SUBTASK 4.4 añade:
+
+- `--session-dir DIR`: crea o identifica una sesión monoobjetivo;
+- `--resume`: carga el plan persistido en `--session-dir`;
+- `--print-plan`: imprime el `ScanPlan` canónico sin ejecutar motores;
+- `--events-jsonl ARCHIVO`: crea un stream público y exclusivo de eventos.
+
+`--resume` no admite nuevos objetivos ni overrides del plan. Las opciones de
+sesión no se combinan con TUI, multiobjetivo o multiendpoint.
 
 ## 7. Objetivos y exclusiones
 
@@ -60,8 +78,8 @@ plan sin banners conserva `banner_engine=null`.
 
 ## 11. TUI
 
-El TUI vigente no se modifica en SUBTASK 4.1 y todavía no muestra checkpoints o
-sesiones reanudadas.
+El TUI vigente conserva el flujo heredado. SUBTASK 4.4 no habilita creación,
+reanudación, plan ni eventos de sesión desde `--tui`.
 
 ## 12. Planes de ejecución
 
@@ -83,15 +101,24 @@ huérfana no sustituye la última confirmada.
 
 ## 14. Reanudación
 
-La reanudación monoobjetivo está disponible mediante la API interna
-`SingleTargetSessionRunner`. No existe todavía una opción pública `--resume`.
-El runner entrega al motor Rust únicamente los puertos pendientes, confirma un
-checkpoint después de cada resultado y omite los puertos ya completados.
+La reanudación monoobjetivo está disponible mediante:
 
-Cuando se solicitaron banners, Go procesa únicamente puertos abiertos aún no
-contabilizados. Una cancelación conserva el progreso confirmado y una llamada
-posterior a `resume()` continúa desde ese estado. Reanudar una sesión ya
-`completed` no ejecuta red ni altera el checkpoint.
+```bash
+cicadaport --resume --session-dir DIR
+```
+
+El plan se carga exclusivamente del checkpoint persistido. La CLI rechaza
+objetivos, puertos, perfiles, timeouts, reportes u otros parámetros que intenten
+sustituirlo.
+
+Rust recibe únicamente los puertos pendientes y Go procesa únicamente banners
+pendientes de puertos abiertos. Una cancelación conserva el último progreso
+confirmado. Reanudar una sesión `completed` no ejecuta red ni altera el
+checkpoint.
+
+`--print-plan` imprime JSON canónico y no crea una sesión. `--events-jsonl`
+requiere creación o reanudación, usa una ruta nueva y registra eventos de ciclo,
+motores, puertos y checkpoints en un stream separado.
 
 ## 15. Manifiestos
 
@@ -106,9 +133,15 @@ checkpoint preservan el contrato canónico: `state`, `evidence.reason` e
 
 ## 17. Códigos de salida
 
-SUBTASK 4.2 no cambia códigos de salida públicos. La API programática distingue
-checkpoint ausente, corrupción, incompatibilidad, persistencia, alcance y fallo
-de ejecución mediante excepciones específicas.
+```text
+0=operación completada o plan impreso
+1=fallo de ejecución, persistencia, integridad o compatibilidad
+2=uso inválido de CLI
+130=cancelación cooperativa
+```
+
+Los errores detectables durante el preflight se producen antes de ejecutar los
+motores nativos.
 
 ## 18. Solución de problemas
 
@@ -127,12 +160,13 @@ evidencia y clasifica la divergencia.
 
 ## 19. Limitaciones conocidas
 
-- la persistencia y reanudación solo están disponibles mediante API interna;
-- no existen todavía `--resume` ni `--session-dir`;
+- las sesiones públicas son exclusivamente monoobjetivo y monoendpoint;
 - no existe reanudación multiobjetivo;
 - no existe integración TUI de sesión;
-- no existen eventos JSONL públicos ni `--print-plan`;
-- Rust y Go emiten eventos internos solo cuando la API proporciona `event_callback`.
+- los eventos públicos requieren creación o reanudación de sesión;
+- no existe migración entre versiones de contratos;
+- Rust y Go conservan sus contratos JSONL y el canal interno separado;
+- TASK 4 no habilita raw scanning, host discovery ni escaneos externos.
 
 ## 20. Privacidad y datos
 
@@ -145,13 +179,15 @@ controles adicionales.
 ## 21. Compatibilidad
 
 ```text
-MANUAL_VERSION=0.3-TASK-4.3
+MANUAL_VERSION=0.4-TASK-4.4
 PRODUCT_VERSION=3.0.0-rc.1
-BASE_COMMIT=8ae89824b1a5b7d06f6fbb95fd9da19684b48e2e
+BASE_COMMIT=c27eecde9bd1227ad108367f55d74abf950d6587
 TASK=4
-SUBTASK=4.3
-PUBLIC_CLI_RESUME=NOT_AVAILABLE
+SUBTASK=4.4
+PUBLIC_CLI_RESUME=AVAILABLE_CANDIDATE
 PROGRAMMATIC_SINGLE_TARGET_RESUME=AVAILABLE
+TUI_RESUME=NOT_AVAILABLE
+MULTI_TARGET_RESUME=NOT_AVAILABLE
 ```
 
 ## 22. Historial evolutivo
@@ -160,15 +196,23 @@ PROGRAMMATIC_SINGLE_TARGET_RESUME=AVAILABLE
 |---|---|---|---|---|
 | `0.1-TASK-4.1` | `3.0.0-rc.1` | 4 | 4.1 | Modelos ejecutables de plan, checkpoint y manifiesto; sin integración pública. |
 | `0.2-TASK-4.2` | `3.0.0-rc.1` | 4 | 4.2 | Persistencia atómica y reanudación monoobjetivo programática; CLI aún no expuesta. |
+| `0.3-TASK-4.3` | `3.0.0-rc.1` | 4 | 4.3 | Observabilidad nativa Rust y Go mediante canal interno separado. |
+| `0.4-TASK-4.4` | `3.0.0-rc.1` | 4 | 4.4 | CLI monoobjetivo para plan, creación, reanudación y eventos JSONL. |
 
 ## 23. Preguntas frecuentes
 
-**¿Ya puedo reanudar un escaneo?** Programáticamente, sí, para una sesión con
-un objetivo mediante `SingleTargetSessionRunner`. Desde la CLI instalada,
-todavía no: `--resume` y `--session-dir` permanecen fuera de la superficie
-pública.
+**¿Ya puedo reanudar un escaneo?** Sí, para una sesión monoobjetivo mediante
+`cicadaport --resume --session-dir DIR`. La CLI carga el plan persistido y
+rechaza objetivos u overrides durante la reanudación.
 
-**¿Cambió el escaneo TCP?** `port_result` v1 permanece intacto. Rust añade un canal interno opcional de observabilidad; Go hace lo mismo para banners. No existe `--events-jsonl`.
+**¿Puedo revisar el plan sin escanear?** Sí. `--print-plan` imprime el
+`ScanPlan` canónico y no crea una sesión ni ejecuta motores.
+
+**¿Cambió el escaneo TCP?** No. `port_result` v1 permanece intacto.
+`--events-jsonl` proyecta observabilidad de sesión en un archivo separado.
+
+**¿Funciona con TUI o múltiples objetivos?** No. Esas superficies permanecen
+fuera de SUBTASK 4.4.
 
 ## 24. Glosario
 

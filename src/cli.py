@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from pathlib import Path
@@ -115,6 +116,31 @@ class PortScannerCLI:
             ),
         )
 
+        session_group = parser.add_argument_group("Opciones de sesión")
+        session_group.add_argument(
+            "--session-dir",
+            help=(
+                "Directorio local exclusivo para crear o reanudar una "
+                "sesión monoobjetivo."
+            ),
+        )
+        session_group.add_argument(
+            "--resume",
+            action="store_true",
+            help="Reanudar el plan persistido en --session-dir.",
+        )
+        session_group.add_argument(
+            "--print-plan",
+            action="store_true",
+            help="Imprimir ScanPlan canónico sin ejecutar motores.",
+        )
+        session_group.add_argument(
+            "--events-jsonl",
+            help=(
+                "Crear un stream JSONL público de eventos de sesión; "
+                "la ruta debe ser nueva."
+            ),
+        )
         scan_group = parser.add_argument_group("Opciones de escaneo")
         scan_group.add_argument(
             "--profile",
@@ -581,9 +607,31 @@ class PortScannerCLI:
         return replace(request, host=parsed_targets[0].value)
 
     def run(self) -> None:
-        """Valida la CLI y ejecuta salida lineal o monitor TUI."""
-        args = self.parser.parse_args()
+        """Valida la CLI y ejecuta flujo heredado o sesión monoobjetivo."""
+        raw_argv = tuple(sys.argv[1:])
+        args = self.parser.parse_args(raw_argv)
         args = self._apply_profile_defaults(args)
+
+        from src.session_cli import (
+            SessionCLIUsageError,
+            execute_session_cli,
+            is_session_mode_requested,
+        )
+
+        if is_session_mode_requested(args):
+            try:
+                execute_session_cli(self, args, raw_argv)
+            except SessionCLIUsageError as error:
+                self.parser.error(str(error))
+            except ScanCancelledError:
+                raise SystemExit(130)
+            except KeyboardInterrupt:
+                raise
+            except Exception as error:
+                print(f"Error durante la sesión: {error}")
+                raise SystemExit(1)
+            return
+
         if not self.validate_arguments(args):
             raise SystemExit(1)
 
@@ -591,7 +639,6 @@ class PortScannerCLI:
         if getattr(args, "tui", False):
             self._launch_tui(self._build_tui_request(args))
             return
-
         presenter = ConsolePresenter(verbose=args.verbose)
         self._orchestrator = ScanOrchestrator(
             event_callback=presenter.handle,
@@ -601,7 +648,6 @@ class PortScannerCLI:
             resolve_output_path=self._resolve_output_path,
             generate_report=self._generate_report,
         )
-
         try:
             parsed_targets = getattr(args, "_parsed_targets", ()) or ()
             use_batch = self._uses_batch_contract(args, parsed_targets)
