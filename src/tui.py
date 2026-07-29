@@ -31,9 +31,10 @@ from src.orchestrator import (
     ScanRequest,
 )
 from src.scanner import ScanResult
+from src.session_tui import SessionTuiController, SessionTuiRequest
 
 
-TuiRequest = ScanRequest | ScanBatchRequest
+TuiRequest = ScanRequest | ScanBatchRequest | SessionTuiRequest
 TuiOutcome = ScanOutcome | ScanBatchOutcome
 
 
@@ -245,6 +246,7 @@ class CicadaPortApp(App[None]):
         self._template = self._template_request(request)
         self._auto_start = auto_start
         self._orchestrator: Optional[ScanOrchestrator] = None
+        self._session_controller: Optional[SessionTuiController] = None
         self._scan_worker: Optional[Worker] = None
         self._scan_active = False
         self._phase = "queued"
@@ -259,7 +261,11 @@ class CicadaPortApp(App[None]):
         self._progress = 0.0
         self._scanned_ports = 0
         self._requested_targets = self._request_target_count(request)
-        self._target_total = self._requested_targets
+        self._target_total = (
+            len(request.plan.resolved_targets)
+            if isinstance(request, SessionTuiRequest)
+            else self._requested_targets
+        )
         self._completed_targets = 0
         self._failed_targets = 0
         self._completed_target_keys: Set[str] = set()
@@ -274,7 +280,23 @@ class CicadaPortApp(App[None]):
         self._last_result: Optional[ScanResult] = None
         self._latency_samples: Deque[float] = deque(maxlen=76)
         self._state_samples: Deque[PortState] = deque(maxlen=76)
-        self._session_id = datetime.now().strftime("%y%m%d-%H%M%S")
+        self._session_id = (
+            request.session_id
+            if isinstance(request, SessionTuiRequest)
+            else datetime.now().strftime("%y%m%d-%H%M%S")
+        )
+        self._checkpoint_sequence = 0
+        self._persisted_session_status = (
+            "resuming"
+            if isinstance(request, SessionTuiRequest)
+            and request.prepared.resume
+            else "created"
+        )
+        self._session_path = (
+            str(request.session_dir)
+            if isinstance(request, SessionTuiRequest)
+            else "-"
+        )
 
     def compose(self) -> ComposeResult:
         yield Static(id="topbar")
@@ -385,9 +407,14 @@ class CicadaPortApp(App[None]):
             "[#8aa4b8]The panel will retain the latest verifiable fingerprint "
             "produced by the selected engine.[/]"
         )
+        repeat_label = (
+            "RESUME"
+            if isinstance(self._request, SessionTuiRequest)
+            else "REPEAT"
+        )
         self.query_one("#keybar", Static).update(
             "[#38bdf8]F1[/] CONTEXT   "
-            "[#60a5fa]F5[/] REPEAT   "
+            f"[#60a5fa]F5[/] {repeat_label}   "
             "[#fbbf24]CTRL+X[/] ABORT   "
             "[#818cf8]CTRL+L[/] CLEAR EVENTS   "
             "[#e879f9]Q / F10[/] EXIT   "
@@ -575,7 +602,10 @@ class CicadaPortApp(App[None]):
         active_targets = self._active_target_count()
         target_workers = (
             self._request.target_workers
-            if isinstance(self._request, ScanBatchRequest)
+            if isinstance(
+                self._request,
+                (ScanBatchRequest, SessionTuiRequest),
+            )
             else 1
         )
         target_counts = self._session_pair(
@@ -623,9 +653,13 @@ class CicadaPortApp(App[None]):
             f"{engine_values}\n"
             f"{self._session_pair('THREAD BUDGET', 'TARGET WORKERS', column_width)}\n"
             f"{worker_values}\n"
+            f"{self._session_pair('SESSION STATUS', 'CHECKPOINT', column_width)}\n"
+            f"{self._session_pair(self._persisted_session_status, str(self._checkpoint_sequence), column_width, values=True)}\n"
             "[#55758d]OUTPUT / REPORT[/]\n"
             f"[#e879f9]{escape(request.report_format.upper())}[/]  "
-            f"[#8aa4b8]{escape(report)}[/]"
+            f"[#8aa4b8]{escape(report)}[/]\n"
+            "[#55758d]SESSION PATH[/]\n"
+            f"[#a5b4fc]{escape(self._clean_field(self._session_path, max(22, session_width - 2)))}[/]"
         )
 
     def _refresh_dashboard(self) -> None:
@@ -664,16 +698,22 @@ class CicadaPortApp(App[None]):
 
     @staticmethod
     def _template_request(request: TuiRequest) -> ScanRequest:
-        return request.template if isinstance(request, ScanBatchRequest) else request
+        if isinstance(request, (ScanBatchRequest, SessionTuiRequest)):
+            return request.template
+        return request
 
     @staticmethod
     def _request_target_count(request: TuiRequest) -> int:
+        if isinstance(request, SessionTuiRequest):
+            return len(request.plan.requested_targets)
         if isinstance(request, ScanBatchRequest):
             return max(1, len(request.targets))
         return 1
 
     @classmethod
     def _request_total_port_count(cls, request: TuiRequest) -> int:
+        if isinstance(request, SessionTuiRequest):
+            return len(request.plan.ports) * len(request.plan.resolved_targets)
         template = cls._template_request(request)
         return cls._request_port_count(template) * cls._request_target_count(request)
 
@@ -689,6 +729,10 @@ class CicadaPortApp(App[None]):
 
     @staticmethod
     def _target_label(request: TuiRequest) -> str:
+        if isinstance(request, SessionTuiRequest):
+            total = len(request.plan.resolved_targets)
+            first = request.plan.requested_targets[0]
+            return f"{total} endpoints / {first}"
         if isinstance(request, ScanBatchRequest):
             total = max(1, len(request.targets))
             first = request.targets[0] if request.targets else "targets"
@@ -704,7 +748,10 @@ class CicadaPortApp(App[None]):
             return 0
         configured = (
             self._request.target_workers
-            if isinstance(self._request, ScanBatchRequest)
+            if isinstance(
+                self._request,
+                (ScanBatchRequest, SessionTuiRequest),
+            )
             else 1
         )
         return min(configured, self._template.threads, remaining)
@@ -787,7 +834,9 @@ class CicadaPortApp(App[None]):
             "CANCEL",
             "cooperative shutdown requested for active engines",
         )
-        if self._orchestrator is not None:
+        if self._session_controller is not None:
+            self._session_controller.cancel()
+        elif self._orchestrator is not None:
             self._orchestrator.cancel()
         elif self._scan_worker is not None:
             self._scan_worker.cancel()
@@ -799,7 +848,11 @@ class CicadaPortApp(App[None]):
     def action_show_help(self) -> None:
         self._write_event(
             "SYSTEM",
-            "scan parameters come from the shell; F5 repeats the same request",
+            (
+                "scan parameters come from the shell; F5 resumes the same session"
+                if isinstance(self._request, SessionTuiRequest)
+                else "scan parameters come from the shell; F5 repeats the same request"
+            ),
         )
         self._write_event(
             "SYSTEM",
@@ -807,6 +860,9 @@ class CicadaPortApp(App[None]):
         )
 
     def action_request_quit(self) -> None:
+        if self._session_controller is not None:
+            self._session_controller.cancel()
+            self._session_controller.close()
         if self._orchestrator is not None:
             self._orchestrator.cancel()
         if self._scan_worker is not None:
@@ -818,6 +874,10 @@ class CicadaPortApp(App[None]):
         orchestrator: ScanOrchestrator,
         request: TuiRequest,
     ) -> TuiOutcome:
+        if isinstance(request, SessionTuiRequest):
+            raise TypeError(
+                "SessionTuiRequest debe ejecutarse mediante SessionTuiController."
+            )
         if isinstance(request, ScanBatchRequest):
             return orchestrator.run_many(request)
         return orchestrator.run(request)
@@ -832,8 +892,16 @@ class CicadaPortApp(App[None]):
         def post_event(event: ScanEvent) -> None:
             self.post_message(OrchestratorUpdate(event))
 
-        self._orchestrator = ScanOrchestrator(event_callback=post_event)
         try:
+            if isinstance(request, SessionTuiRequest):
+                if self._session_controller is None:
+                    self._session_controller = SessionTuiController(
+                        request,
+                        post_event,
+                    )
+                self._session_controller.run()
+                return
+            self._orchestrator = ScanOrchestrator(event_callback=post_event)
             self._execute_request(self._orchestrator, request)
         except ScanCancelledError:
             self.post_message(OrchestratorStopped())
@@ -992,6 +1060,19 @@ class CicadaPortApp(App[None]):
         event = message.event
         context = self._event_context(event)
 
+        if event.data.get("session_id"):
+            self._session_id = str(event.data["session_id"])
+        if event.data.get("checkpoint_sequence") is not None:
+            self._checkpoint_sequence = int(
+                event.data["checkpoint_sequence"]
+            )
+        if event.data.get("session_status"):
+            self._persisted_session_status = str(
+                event.data["session_status"]
+            )
+        if event.data.get("session_dir"):
+            self._session_path = str(event.data["session_dir"])
+
         if event.progress is not None:
             self._progress = max(0.0, min(100.0, float(event.progress)))
 
@@ -1123,7 +1204,11 @@ class CicadaPortApp(App[None]):
             outcome = event.data["outcome"]
             self._last_outcome = outcome
             stats = outcome.statistics
-            self._phase = "complete"
+            self._phase = (
+                "failed"
+                if event.data.get("session_status") == "failed"
+                else "complete"
+            )
             self._progress = 100.0
             self._requested_targets = stats["requested_targets"]
             self._target_total = stats["resolved_targets"]
@@ -1145,6 +1230,9 @@ class CicadaPortApp(App[None]):
         if event.kind == ScanEventType.CANCELLED:
             self._phase = "cancelled"
             self._write_event("CANCEL", context + event.message)
+            if isinstance(self._request, SessionTuiRequest):
+                self._set_active(False)
+                return
             if not isinstance(self._request, ScanBatchRequest):
                 self._set_active(False)
                 self._orchestrator = None

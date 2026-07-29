@@ -4,7 +4,7 @@
 HITO_3=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
 TASK_4=IN_IMPLEMENTATION
 TASK_4_BRANCH=feat/task-4-resumable-observable-sessions
-CURRENT_SUBTASK=4.4
+CURRENT_SUBTASK=4.5
 PRIMARY_DELIVERABLE=WORKING_SOFTWARE
 ```
 
@@ -15,8 +15,7 @@ SUBTASK_4_1=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
 SUBTASK_4_1_COMMIT=8229202c5c9ea508961039fdf6de432aeb76f212
 ```
 
-Contratos congelados: `ScanPlan`, `EndpointProgress`,
-`SessionCheckpoint`, `SessionManifest` y JSON determinista.
+Contratos v1 de plan, progreso, checkpoint y manifiesto congelados.
 
 ## SUBTASK 4.2
 
@@ -26,8 +25,7 @@ SUBTASK_4_2_COMMIT=8ae89824b1a5b7d06f6fbb95fd9da19684b48e2e
 SUBTASK_4_2_REMOTE_CI_RUN=30402471632
 ```
 
-Persistencia generacional, `CURRENT.json`, reanudación monoobjetivo y
-`NativeSingleTargetExecutor` permanecen congelados.
+Persistencia generacional y reanudación monoobjetivo congeladas.
 
 ## SUBTASK 4.3
 
@@ -38,33 +36,36 @@ SUBTASK_4_3_REMOTE_CI_RUN=30408734696
 SUBTASK_4_3_REMOTE_CI=PASS
 ```
 
-Observabilidad interna Rust y Go mediante descriptor heredado, sin modificar
-`port_result` v1 ni `banner_result` v1.
+Observabilidad interna Rust y Go congelada.
 
 ## SUBTASK 4.4
 
 ```text
-SUBTASK_4_4=IN_MATERIAL_IMPLEMENTATION
-SUBTASK_4_4_CONTRACT=CCSMO-CICADAPORT-4.4-001
-PUBLIC_CLI_RESUME=AVAILABLE_CANDIDATE
-PUBLIC_SESSION_DIR_OPTION=AVAILABLE_CANDIDATE
-PUBLIC_EVENTS_JSONL=AVAILABLE_CANDIDATE
-PUBLIC_PRINT_PLAN=AVAILABLE_CANDIDATE
-TUI_RESUME=NOT_AVAILABLE
-MULTI_TARGET_RESUME=NOT_AVAILABLE
-SUBTASK_4_5=NOT_STARTED
+SUBTASK_4_4=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
+SUBTASK_4_4_COMMIT=cbf92fdb599dba22606efe2a5038d17150a723fb
+SUBTASK_4_4_REMOTE_CI_RUN=30413253786
+SUBTASK_4_4_REMOTE_CI=PASS
+PUBLIC_CLI_RESUME=AVAILABLE
+PUBLIC_SESSION_DIR_OPTION=AVAILABLE
+PUBLIC_EVENTS_JSONL=AVAILABLE
+PUBLIC_PRINT_PLAN=AVAILABLE
 ```
 
-Rutas materiales autorizadas:
+Integración CLI monoobjetivo congelada.
+
+## SUBTASK 4.5
 
 ```text
-src/session_cli.py
-src/cli.py
-tests/test_session_cli.py
-docs/contracts/cli-single-target-session-v1.md
-docs/task-4-status.md
-docs/user-manual/README.md
+SUBTASK_4_5=IN_MATERIAL_IMPLEMENTATION
+SUBTASK_4_5_CONTRACT=CMTS-CICADAPORT-4.5-001
+CONTRACT_STATUS=IMPLEMENTED_CANDIDATE
+MULTI_TARGET_RESUME=AVAILABLE_CANDIDATE
+MULTI_ENDPOINT_RESUME=AVAILABLE_CANDIDATE
+TUI_SESSION_INTEGRATION=AVAILABLE_CANDIDATE
+GLOBAL_CHECKPOINT=AVAILABLE_CANDIDATE
+BOUNDED_TARGET_CONCURRENCY=AVAILABLE_CANDIDATE
+TASK_4_CLOSURE=NOT_AUTHORIZED
 ```
 
-La implementación debe detenerse con staging vacío, cero commits, cero push y
-todas las superficies congeladas no reabiertas intactas.
+La implementación material se limita a diez rutas y debe detenerse con staging
+vacío, cero commits, cero push y todas las superficies no reabiertas intactas.

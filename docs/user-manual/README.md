@@ -3,12 +3,11 @@
 ## 1. Presentación y alcance
 
 CicadaPort es una herramienta de auditoría autorizada con Python como
-orquestador, Rust como motor TCP obligatorio y Go como motor de banners cuando
-se solicita esa fase.
+orquestador, Rust como motor TCP obligatorio y Go como motor de banners.
 
-TASK 4 incorpora contratos, persistencia y observabilidad verificables. En
-SUBTASK 4.4 la CLI pública integra sesiones monoobjetivo y monoendpoint sin
-modificar esos formatos ni alterar el flujo heredado.
+TASK 4 ofrece sesiones persistentes reproducibles, reanudables y observables.
+SUBTASK 4.5 integra múltiples objetivos y endpoints con CLI y TUI sin cambiar
+los contratos v1.
 
 ## 2. Seguridad y uso autorizado
 
@@ -28,32 +27,44 @@ compilar los motores nativos obligatorios.
 
 ## 5. Inicio rápido
 
-La interfaz pública continúa siendo `cicadaport`. Sin opciones de sesión, los
-comandos existentes mantienen el flujo heredado.
-
-Para crear una sesión:
+Flujo heredado:
 
 ```bash
-cicadaport 127.0.0.1 -p 80,443 --session-dir ./sesion
+cicadaport 127.0.0.1 -p 80,443
 ```
 
-Para reanudarla:
+Crear una sesión multiobjetivo:
+
+```bash
+cicadaport 127.0.0.1 --target 127.0.0.2   -p 80,443 --session-dir ./sesion
+```
+
+Reanudar:
 
 ```bash
 cicadaport --resume --session-dir ./sesion
 ```
 
+Abrir o reanudar en TUI:
+
+```bash
+cicadaport 127.0.0.1 --target 127.0.0.2   -p 80,443 --session-dir ./sesion --tui
+
+cicadaport --resume --session-dir ./sesion --tui
+```
+
 ## 6. Referencia del CLI
 
-Usa `cicadaport --help` como fuente operativa. SUBTASK 4.4 añade:
+Opciones públicas de sesión:
 
-- `--session-dir DIR`: crea o identifica una sesión monoobjetivo;
-- `--resume`: carga el plan persistido en `--session-dir`;
-- `--print-plan`: imprime el `ScanPlan` canónico sin ejecutar motores;
-- `--events-jsonl ARCHIVO`: crea un stream público y exclusivo de eventos.
+- `--session-dir DIR`: crea o identifica una sesión persistente;
+- `--resume`: carga el plan confirmado en `DIR`;
+- `--print-plan`: imprime `ScanPlan` canónico sin ejecutar red;
+- `--events-jsonl ARCHIVO`: crea un stream público de eventos v1;
+- `--tui`: presenta la misma sesión mediante el dashboard.
 
-`--resume` no admite nuevos objetivos ni overrides del plan. Las opciones de
-sesión no se combinan con TUI, multiobjetivo o multiendpoint.
+La creación admite objetivos posicionales, `--target`, `--target-file` y
+exclusiones. `--resume` no admite overrides del plan persistido.
 
 ## 7. Objetivos y exclusiones
 
@@ -67,9 +78,15 @@ contratos internos de sesión normalizan puertos únicos entre 1 y 65535.
 
 ## 9. Concurrencia y timeouts
 
-`--threads` continúa siendo un presupuesto global y `--target-workers` limita
-los objetivos simultáneos. `ScanPlan` registra los valores efectivos sin
-multiplicarlos silenciosamente.
+`threads` es el presupuesto global. `target_workers` limita los endpoints
+activos y nunca puede superar endpoints, threads ni el valor solicitado.
+
+```text
+effective_target_workers=min(target_workers,endpoints,threads)
+workers_per_endpoint=max(1,threads//effective_target_workers)
+```
+
+Cada endpoint conserva el timeout y los puertos del plan canónico.
 
 ## 10. Banners
 
@@ -78,70 +95,92 @@ plan sin banners conserva `banner_engine=null`.
 
 ## 11. TUI
 
-El TUI vigente conserva el flujo heredado. SUBTASK 4.4 no habilita creación,
-reanudación, plan ni eventos de sesión desde `--tui`.
+El TUI admite flujo heredado y sesiones persistentes.
+
+En una sesión muestra:
+
+- `session_id`, estado, checkpoint y ruta;
+- endpoints totales, completados, fallidos y pendientes;
+- objetivo y dirección activos;
+- progreso agregado y resultados.
+
+Controles:
+
+- `F5`: inicia o reanuda la misma sesión;
+- `Ctrl+X`: cancelación cooperativa y persistida;
+- `Q` o `F10`: solicita cancelación antes de cerrar si hay trabajo activo.
+
+El plan persistido no puede editarse desde el TUI.
 
 ## 12. Planes de ejecución
 
-`ScanPlan` v1 conserva una solicitud ya resuelta: objetivos, endpoints, puertos,
-timeout, concurrencia, motores y salida. El modelo calcula un fingerprint
-SHA-256 reproducible sobre JSON determinista.
+El `ScanPlan` v1 se genera antes de ejecutar red. Puede contener múltiples
+objetivos solicitados y múltiples endpoints IPv4/IPv6.
+
+Todos los objetivos deben resolver correctamente. Un fallo de resolución
+impide crear la sesión. El fingerprint permanece inmutable durante todas las
+reanudaciones.
 
 ## 13. Checkpoints
 
-SUBTASK 4.2 añade un almacén local programático para una sesión y un endpoint.
-Cada generación contiene un `SessionCheckpoint` y un `SessionManifest`; el
-puntero `CURRENT.json` solo cambia después de escribir, sincronizar y verificar
-la nueva generación. Los hashes SHA-256, las versiones, el fingerprint del plan
-y la estructura completa se validan al cargar.
+La sesión usa un checkpoint global con un `EndpointProgress` por endpoint.
+Cada resultado, banner, error o transición genera una secuencia global
+monotónica.
 
-Los archivos se crean dentro de un directorio dedicado con permisos
-restrictivos. Las generaciones confirmadas son inmutables y una generación
-huérfana no sustituye la última confirmada.
+Las generaciones son inmutables y `CURRENT.json` se reemplaza atómicamente.
+La lectura verifica SHA-256, manifiesto, identidad de sesión y fingerprint.
 
 ## 14. Reanudación
 
-La reanudación monoobjetivo está disponible mediante:
+La reanudación omite:
+
+- endpoints completados;
+- puertos ya confirmados;
+- banners ya confirmados.
+
+Los endpoints fallidos pueden reintentarse sin repetir trabajo de otros
+endpoints. Una sesión `completed` es idempotente. Una sesión `failed` o
+`cancelled` puede volver a `running`.
+
+CLI:
 
 ```bash
 cicadaport --resume --session-dir DIR
 ```
 
-El plan se carga exclusivamente del checkpoint persistido. La CLI rechaza
-objetivos, puertos, perfiles, timeouts, reportes u otros parámetros que intenten
-sustituirlo.
+TUI:
 
-Rust recibe únicamente los puertos pendientes y Go procesa únicamente banners
-pendientes de puertos abiertos. Una cancelación conserva el último progreso
-confirmado. Reanudar una sesión `completed` no ejecuta red ni altera el
-checkpoint.
-
-`--print-plan` imprime JSON canónico y no crea una sesión. `--events-jsonl`
-requiere creación o reanudación, usa una ruta nueva y registra eventos de ciclo,
-motores, puertos y checkpoints en un stream separado.
+```bash
+cicadaport --resume --session-dir DIR --tui
+```
 
 ## 15. Manifiestos
 
-`SessionManifest` v1 deriva conteos, tiempos, motores y fingerprint desde un
-checkpoint validado. No sustituye los reportes de escaneo existentes.
+`SessionManifest` v1 se deriva del checkpoint global y resume:
+
+- número de endpoints;
+- endpoints exitosos y fallidos;
+- puertos completados y abiertos;
+- estado y secuencia de la sesión.
+
+No se introducen formatos ni versiones nuevas.
 
 ## 16. Resultados y reportes
 
-TXT, JSON, CSV y HTML permanecen sin cambios. Los resultados internos de
-checkpoint preservan el contrato canónico: `state`, `evidence.reason` e
-`is_open` deben ser coherentes.
+Se genera un reporte TXT, JSON, CSV o HTML por endpoint. En planes con más de
+un endpoint debe utilizarse `report_dir`; una ruta `output` exacta se rechaza.
+
+Una sesión fallida conserva reportes de endpoints que sí completaron. La
+reanudación puede regenerarlos sin modificar el checkpoint.
 
 ## 17. Códigos de salida
 
 ```text
 0=operación completada o plan impreso
 1=fallo de ejecución, persistencia, integridad o compatibilidad
-2=uso inválido de CLI
+2=uso inválido o sesión finalizada con fallos parciales
 130=cancelación cooperativa
 ```
-
-Los errores detectables durante el preflight se producen antes de ejecutar los
-motores nativos.
 
 ## 18. Solución de problemas
 
@@ -160,13 +199,12 @@ evidencia y clasifica la divergencia.
 
 ## 19. Limitaciones conocidas
 
-- las sesiones públicas son exclusivamente monoobjetivo y monoendpoint;
-- no existe reanudación multiobjetivo;
-- no existe integración TUI de sesión;
-- los eventos públicos requieren creación o reanudación de sesión;
-- no existe migración entre versiones de contratos;
-- Rust y Go conservan sus contratos JSONL y el canal interno separado;
-- TASK 4 no habilita raw scanning, host discovery ni escaneos externos.
+- el plan debe resolverse completamente antes de crear la sesión;
+- el TUI no permite editar el plan persistido;
+- no existe migración entre versiones contractuales;
+- los reportes continúan siendo individuales por endpoint;
+- TASK 4 no incorpora raw scanning, host discovery ni escaneos externos;
+- Rust, Go, bridges y eventos públicos v1 permanecen congelados.
 
 ## 20. Privacidad y datos
 
@@ -179,40 +217,41 @@ controles adicionales.
 ## 21. Compatibilidad
 
 ```text
-MANUAL_VERSION=0.4-TASK-4.4
+MANUAL_VERSION=0.5-TASK-4.5
 PRODUCT_VERSION=3.0.0-rc.1
-BASE_COMMIT=c27eecde9bd1227ad108367f55d74abf950d6587
+BASE_COMMIT=cbf92fdb599dba22606efe2a5038d17150a723fb
 TASK=4
-SUBTASK=4.4
-PUBLIC_CLI_RESUME=AVAILABLE_CANDIDATE
-PROGRAMMATIC_SINGLE_TARGET_RESUME=AVAILABLE
-TUI_RESUME=NOT_AVAILABLE
-MULTI_TARGET_RESUME=NOT_AVAILABLE
+SUBTASK=4.5
+MULTI_TARGET_RESUME=AVAILABLE_CANDIDATE
+MULTI_ENDPOINT_RESUME=AVAILABLE_CANDIDATE
+TUI_SESSION_INTEGRATION=AVAILABLE_CANDIDATE
+SINGLE_TARGET_SESSION=COMPATIBLE
+LEGACY_CLI=COMPATIBLE
 ```
 
 ## 22. Historial evolutivo
 
 | Manual | Producto | Task | Subtask | Cambio |
 |---|---|---|---|---|
-| `0.1-TASK-4.1` | `3.0.0-rc.1` | 4 | 4.1 | Modelos ejecutables de plan, checkpoint y manifiesto; sin integración pública. |
-| `0.2-TASK-4.2` | `3.0.0-rc.1` | 4 | 4.2 | Persistencia atómica y reanudación monoobjetivo programática; CLI aún no expuesta. |
-| `0.3-TASK-4.3` | `3.0.0-rc.1` | 4 | 4.3 | Observabilidad nativa Rust y Go mediante canal interno separado. |
-| `0.4-TASK-4.4` | `3.0.0-rc.1` | 4 | 4.4 | CLI monoobjetivo para plan, creación, reanudación y eventos JSONL. |
+| `0.1-TASK-4.1` | `3.0.0-rc.1` | 4 | 4.1 | Contratos de sesión v1. |
+| `0.2-TASK-4.2` | `3.0.0-rc.1` | 4 | 4.2 | Persistencia y reanudación monoobjetivo. |
+| `0.3-TASK-4.3` | `3.0.0-rc.1` | 4 | 4.3 | Observabilidad nativa. |
+| `0.4-TASK-4.4` | `3.0.0-rc.1` | 4 | 4.4 | CLI pública monoobjetivo. |
+| `0.5-TASK-4.5` | `3.0.0-rc.1` | 4 | 4.5 | Convergencia multiobjetivo, multiendpoint y TUI. |
 
 ## 23. Preguntas frecuentes
 
-**¿Ya puedo reanudar un escaneo?** Sí, para una sesión monoobjetivo mediante
-`cicadaport --resume --session-dir DIR`. La CLI carga el plan persistido y
-rechaza objetivos u overrides durante la reanudación.
+**¿Puedo reanudar varios objetivos?** Sí. El checkpoint global conserva el
+progreso de cada endpoint y solo reejecuta trabajo pendiente o fallido.
 
-**¿Puedo revisar el plan sin escanear?** Sí. `--print-plan` imprime el
-`ScanPlan` canónico y no crea una sesión ni ejecuta motores.
+**¿Puedo usar la sesión en TUI?** Sí. `--session-dir` y `--resume` pueden
+combinarse con `--tui`.
 
-**¿Cambió el escaneo TCP?** No. `port_result` v1 permanece intacto.
-`--events-jsonl` proyecta observabilidad de sesión en un archivo separado.
+**¿F5 repite el escaneo completo?** No. Reanuda la misma sesión y una sesión
+`completed` no ejecuta red.
 
-**¿Funciona con TUI o múltiples objetivos?** No. Esas superficies permanecen
-fuera de SUBTASK 4.4.
+**¿Cambian los contratos v1?** No. Plan, checkpoint, manifiesto, resultados
+nativos y eventos públicos mantienen versión 1.
 
 ## 24. Glosario
 

@@ -568,7 +568,7 @@ class PortScannerCLI:
         print(console_report)
 
     @staticmethod
-    def _launch_tui(request: ScanRequest | ScanBatchRequest) -> None:
+    def _launch_tui(request: Any) -> None:
         try:
             from src.tui import launch_tui
         except ImportError as error:
@@ -607,11 +607,15 @@ class PortScannerCLI:
         return replace(request, host=parsed_targets[0].value)
 
     def run(self) -> None:
-        """Valida la CLI y ejecuta flujo heredado o sesión monoobjetivo."""
+        """Valida la CLI y ejecuta flujo heredado o sesión persistente."""
         raw_argv = tuple(sys.argv[1:])
         args = self.parser.parse_args(raw_argv)
         args = self._apply_profile_defaults(args)
 
+        from src.session_batch_cli import (
+            execute_batch_session_cli,
+            session_requires_batch,
+        )
         from src.session_cli import (
             SessionCLIUsageError,
             execute_session_cli,
@@ -620,7 +624,10 @@ class PortScannerCLI:
 
         if is_session_mode_requested(args):
             try:
-                execute_session_cli(self, args, raw_argv)
+                if session_requires_batch(self, args, raw_argv):
+                    execute_batch_session_cli(self, args, raw_argv)
+                else:
+                    execute_session_cli(self, args, raw_argv)
             except SessionCLIUsageError as error:
                 self.parser.error(str(error))
             except ScanCancelledError:
