@@ -8,6 +8,9 @@ Python distribution versions use the equivalent PEP 440 spelling.
 
 ### Added
 
+- TASK 5 architecture, threat model and candidate v2 contracts.
+- A loopback-only, hashed enterprise baseline for Rust, Go, Session Store v1
+  and report-security behavior.
 - Versioned reproducible session plans, checkpoints and manifests.
 - Resumable single-target and multi-target sessions with per-endpoint progress.
 - Native Rust and Go observability projected into public JSONL events.
@@ -21,6 +24,8 @@ Python distribution versions use the equivalent PEP 440 spelling.
 
 ### Security
 
+- TASK 5.1 documents scope enforcement, binary identity, secure artifact
+  writing, bounded resources and hostile-banner handling before implementation.
 - Session stores use restrictive permissions, immutable generations, hashes,
   symlink rejection and atomic `CURRENT.json` replacement.
 - TASK 4 remains limited to authorized TCP-connect scanning and optional safe

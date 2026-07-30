@@ -33,6 +33,14 @@ cerrada y congelada sobre la implementación funcional
 solo a `3.0.0-rc.1` en una versión estable ni autoriza capacidades fuera del
 alcance TCP-connect y banner grabbing documentado.
 
+## Estado de TASK 5
+
+TASK 5 — Enterprise Engine and Production Hardening — está formalmente abierta
+sobre `main@bfaa7e6c2989dc923b418862ce9243e68e3f569c`. SUBTASK 5.1 define
+la arquitectura, contratos candidatos, modelo de amenazas e instrumentación de
+baseline. Todavía no modifica materialmente el Session Store, Rust, Go, CLI,
+TUI ni los contratos públicos v1. Consulta [docs/task-5-status.md](docs/task-5-status.md).
+
 ## Características Principales
 
 - **Escaneo Multi-hilos**: Alta velocidad con gestión eficiente de hilos

@@ -245,16 +245,26 @@ SYN scan, nuevas capacidades UDP, identificación activa de sistemas
 operativos, detección de vulnerabilidades, explotación, evasión, scripting
 ofensivo ni escaneo externo o no autorizado.
 
-## Barrera formal de TASK 5
+## TASK 5 — Enterprise Engine and Production Hardening
 
 ```text
-TASK_5=BLOCKED_NOT_STARTED
+TASK_5=OPEN_AUTHORIZED
+CONTRACT=CEPH-CICADAPORT-TASK-5-001
+CONTRACT_VERSION=1.0-CANDIDATE
+BASE=main@bfaa7e6c2989dc923b418862ce9243e68e3f569c
+BRANCH=feat/task-5-enterprise-engine-production-hardening
+SUBTASK_5_1=IN_MATERIAL_IMPLEMENTATION
+SUBTASK_5_2=BLOCKED_NOT_STARTED
+SUBTASK_5_3=BLOCKED_NOT_STARTED
+SUBTASK_5_4=BLOCKED_NOT_STARTED
+SUBTASK_5_5=BLOCKED_NOT_STARTED
+SUBTASK_5_6=BLOCKED_NOT_STARTED
 ```
 
-La futura mejora empresarial de motores Rust y Go, el rediseño del almacén de
-sesiones, los reportes seguros, la supply chain y las capacidades operativas
-requieren contrato y autorización independientes. El cierre de TASK 4 no abre
-TASK 5 automáticamente.
+SUBTASK 5.1 está limitada a arquitectura, contratos candidatos, modelo de
+amenazas, instrumentación y baseline loopback. No autoriza cambios funcionales
+en Session Store, Rust, Go, CLI, TUI, reportes ni contratos v1. 5.2–5.6
+permanecen bloqueadas hasta el cierre firmado de 5.1.
 
 ## Gobierno vigente
 
