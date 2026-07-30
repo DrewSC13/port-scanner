@@ -25,6 +25,14 @@ python -m pip install -r requirements-release.txt
 ./scripts/test_release_artifacts.sh dist
 ```
 
+## Estado de TASK 4
+
+TASK 4 — sesiones reproducibles, reanudables y observables — está consolidada,
+cerrada y congelada sobre la implementación funcional
+`77ad51f0751b29b510f574e750c1a3fa65db4a60`. Este cierre no convierte por sí
+solo a `3.0.0-rc.1` en una versión estable ni autoriza capacidades fuera del
+alcance TCP-connect y banner grabbing documentado.
+
 ## Características Principales
 
 - **Escaneo Multi-hilos**: Alta velocidad con gestión eficiente de hilos

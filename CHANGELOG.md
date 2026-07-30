@@ -6,7 +6,26 @@ Python distribution versions use the equivalent PEP 440 spelling.
 
 ## [Unreleased]
 
-No changes have been authorized after the first release candidate.
+### Added
+
+- Versioned reproducible session plans, checkpoints and manifests.
+- Resumable single-target and multi-target sessions with per-endpoint progress.
+- Native Rust and Go observability projected into public JSONL events.
+- Public CLI session creation, resume, plan printing and event streaming.
+- Multi-target and multi-endpoint TUI integration over the same batch runtime.
+
+### Changed
+
+- Session state is persisted before confirmation events are emitted.
+- CLI and TUI now share the same immutable execution plan and resume semantics.
+
+### Security
+
+- Session stores use restrictive permissions, immutable generations, hashes,
+  symlink rejection and atomic `CURRENT.json` replacement.
+- TASK 4 remains limited to authorized TCP-connect scanning and optional safe
+  banner collection; no raw, discovery or vulnerability capabilities were
+  introduced.
 
 ## [3.0.0-rc.1] - Unreleased
 

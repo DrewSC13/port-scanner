@@ -197,137 +197,70 @@ Resultado congelado:
 
 ### Subhito 3.2.12 — Auditoría de cierre y congelamiento del Hito 3
 
-**Estado:** `IN_IMPLEMENTATION`
-**Dependencia:** 3.2.8–3.2.11 `CLOSED_FROZEN`.
-**Contrato aprobado:** `ACCH-CICADAPORT-3.2.12-001`, versión `1.0-CANDIDATA`.
-**Base:** `main@9d3d75112a49e8608c4cb4619b244372c08ae077`.
-**Rama:** `feat/subhito-3.2.12-auditoria-cierre-hito-3`.
+**Estado:** `COMPLETED_CONSOLIDATED_CLOSED_FROZEN`
+**Contrato:** `ACCH-CICADAPORT-3.2.12-001`, versión `1.0-DEFINITIVA`.
+**Commit definitivo:** `84dd1f1eafb684b5afccd7ad647781d8a5b4b459`.
+**Árbol:** `b66830764e58622528781364f86f98f397f0489b`.
+**Padre:** `9d3d75112a49e8608c4cb4619b244372c08ae077`.
+**Etiqueta firmada:** `subhito-3.2.12`.
+**Objeto de etiqueta:** `0029313e4108ef3864375861ab27f0938bd2008b`.
 
-Objetivo:
+El Hito 3 queda cerrado y congelado. Las excepciones históricas aceptadas no se
+extienden a commits posteriores.
 
-- auditar contratos, documentación, empaquetado, seguridad, pruebas y CI;
-- confirmar que toda deuda crítica está cerrada o clasificada;
-- verificar que no existen rutas públicas contradictorias;
-- producir la evidencia de cierre del Hito 3;
-- congelar el resultado mediante commit y etiqueta firmados.
-
-La primera etapa no autoriza staging, commit, push, integración ni etiquetado.
-Este subhito no inicia el Hito 4.
-
-## Dependencias
+## TASK 4 — Sesiones reproducibles, reanudables y observables
 
 ```text
-3.2.7 Hoja de ruta
-  └── 3.2.8 Interfaz pública especializada
-        └── 3.2.9 Invocación nativa
-              └── 3.2.10 Contrato canónico
-                    └── 3.2.11 Release candidate
-                          └── 3.2.12 Auditoría y cierre del Hito 3
+TASK_4=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
+CONTRACT=CSR-CICADAPORT-TASK-4-001
+CONTRACT_VERSION=1.0-DEFINITIVA
+BASE=main@84dd1f1eafb684b5afccd7ad647781d8a5b4b459
+IMPLEMENTATION_BRANCH=feat/task-4-resumable-observable-sessions
+IMPLEMENTATION_HEAD=77ad51f0751b29b510f574e750c1a3fa65db4a60
+CLOSURE_REFERENCE=SIGNED_TAG:task-4
 ```
 
-No se autoriza ejecución paralela cuando un subhito depende de una decisión de
-compatibilidad del anterior.
+| Subtask | Resultado | Commit definitivo |
+| --- | --- | --- |
+| 4.1 | Contrato y núcleo de sesiones | `8229202c5c9ea508961039fdf6de432aeb76f212` |
+| 4.2 | Checkpoint y reanudación monoobjetivo | `8ae89824b1a5b7d06f6fbb95fd9da19684b48e2e` |
+| 4.3 | Observabilidad nativa Rust y Go | `c27eecde9bd1227ad108367f55d74abf950d6587` |
+| 4.4 | Integración pública CLI monoobjetivo | `cbf92fdb599dba22606efe2a5038d17150a723fb` |
+| 4.5 | Multiobjetivo, multiendpoint y TUI | `77ad51f0751b29b510f574e750c1a3fa65db4a60` |
 
-## Puerta de salida del Hito 3
+Resultado consolidado:
 
-El Hito 3 solo podrá proponerse para cierre cuando se demuestre, como mínimo:
+- planes, checkpoints y manifiestos v1 reproducibles;
+- persistencia y reanudación monoobjetivo y multiobjetivo;
+- observabilidad nativa Rust/Go y eventos públicos proyectados;
+- CLI y TUI sobre el mismo runtime de sesión;
+- concurrencia global acotada y progreso independiente por endpoint;
+- contratos nativos y canónicos v1 preservados;
+- CI remoto #60 `Success` sobre el head funcional.
 
-1. todos los subhitos definidos como obligatorios están `CLOSED_FROZEN`;
-2. no queda deuda crítica sin propietario, decisión o justificación;
-3. los contratos públicos y nativos están versionados y documentados;
-4. CLI, TUI, reportes y motores comparten el mismo modelo de resultados;
-5. la cancelación no deja procesos nativos activos ni zombis persistentes;
-6. los artefactos de distribución se construyen e instalan de forma aislada;
-7. la matriz de Python, Rust, Go, Shell e integración está completamente verde;
-8. las plataformas declaradas tienen evidencia o están limitadas explícitamente;
-9. README, CONTRIBUTING, SECURITY, changelog y hoja de ruta son coherentes;
-10. los commits de cierre y la etiqueta final están firmados y verificados;
-11. las pruebas de red se ejecutan únicamente en loopback o alcance autorizado;
-12. no se ha incorporado materialmente ninguna capacidad reservada al Hito 4.
+## Alcance excluido y congelado
 
-## Barrera formal del Hito 4
+TASK 4 no incorpora descubrimiento de hosts, ICMP, ARP, sockets o paquetes raw,
+SYN scan, nuevas capacidades UDP, identificación activa de sistemas
+operativos, detección de vulnerabilidades, explotación, evasión, scripting
+ofensivo ni escaneo externo o no autorizado.
 
-El Hito 4 está `BLOCKED` y `NOT_STARTED`.
+## Barrera formal de TASK 5
 
-Permanecen fuera de alcance hasta una autorización formal independiente:
+```text
+TASK_5=BLOCKED_NOT_STARTED
+```
 
-- descubrimiento de hosts;
-- ICMP y ARP;
-- sockets o paquetes raw;
-- SYN scan;
-- nuevas capacidades UDP;
-- identificación activa de sistemas operativos;
-- detección de vulnerabilidades;
-- explotación, evasión o scripting ofensivo;
-- escaneos externos o no autorizados.
+La futura mejora empresarial de motores Rust y Go, el rediseño del almacén de
+sesiones, los reportes seguros, la supply chain y las capacidades operativas
+requieren contrato y autorización independientes. El cierre de TASK 4 no abre
+TASK 5 automáticamente.
 
-Cerrar el Hito 3 no abre automáticamente el Hito 4. La apertura requerirá una
-base congelada, un contrato provisional propio y una aprobación explícita del
-Arquitecto del Proyecto.
+## Gobierno vigente
 
-## Gobierno de esta hoja de ruta
-
-- Los hechos históricos deben estar respaldados por commits o etiquetas.
-- Una propuesta futura debe permanecer marcada como `DEFINED` hasta recibir
-  autorización.
-- Los cambios de estado requieren evidencia verificable.
-- Toda modificación de esta hoja debe ser atómica, firmada y pasar el CI.
-- Un subhito funcional debe actualizar la documentación afectada en el mismo
-  flujo de cierre.
-- No se deben eliminar incidentes de CI fallidos que constituyan evidencia
-  histórica de una regresión y su corrección.
-- La hoja de ruta no sustituye el contrato provisional de cada subhito.
-
-## Siguiente acción formal
-
-La única acción habilitada es ejecutar la primera etapa del Subhito 3.2.12 bajo
-`ACCH-CICADAPORT-3.2.12-001`, versión `1.0-CANDIDATA`, en la rama `feat/subhito-3.2.12-auditoria-cierre-hito-3`.
-
-La etapa se limita a inventario, contrato, matrices, actualización documental y
-diagnósticos. No autoriza staging, commit, push, integración ni etiquetado.
-
-El Hito 4 permanece `BLOCKED` y `NOT_STARTED`.
-
-## Registro de aceptación histórica del Hito 3
-
-<!-- DECISION-ID: ACCH-3.2.12-HIST-001 -->
-
-Para la auditoría del Subhito 3.2.12 se aceptan como cierres históricos no
-bloqueantes los Subhitos 3.2.1, 3.2.2 y 3.2.3, sin crear etiquetas
-retroactivas.
-
-El caso 3.2.2 incluye una excepción limitada al merge histórico sin firma local
-`2c47f13939b17603ecda3f816293e1ed4cbab50b`, verificado por GitHub, con CI
-satisfactorio y ascendencia demostrada. La excepción no se extiende a ningún
-otro commit o subhito.
-
-El estado resultante es:
-
-- `HISTORICAL_DISCREPANCIES_OPEN=0`;
-- `RETROACTIVE_TAGS_REQUIRED=0`;
-- `HISTORY_REWRITES_REQUIRED=0`.
-
-El Subhito 3.2.12 continúa `IN_IMPLEMENTATION`. El Hito 4 continúa `BLOCKED` y
-`NOT_STARTED`.
-
-<!-- BEGIN ACCH-3.2.12-STAGE2 -->
-## Segunda etapa del Subhito 3.2.12 — consolidada
-
-**Estado:** `COMPLETED_READY_FOR_STAGING_AUTHORIZATION`
-
-- Deuda técnica: `DT-01..DT-06=CLOSED`.
-- Controles aprobados: `C01..C09`, `C11`, `C12`.
-- Control pendiente por diseño: `C10`.
-- Discrepancias abiertas: `0`.
-- Divergencias funcionales reproducibles: `0`.
-- Cambios de código ejecutable: `0`.
-- Staging: `EMPTY`.
-- Commits: `0`.
-- Pushes: `0`.
-- Etiquetas: `0`.
-- Operaciones remotas de escritura: `0`.
-
-El Subhito 3.2.12 permanece `IN_IMPLEMENTATION`. La siguiente puerta formal es
-la revisión y autorización separada del staging y commit firmado. El Hito 4
-permanece `BLOCKED` y `NOT_STARTED`.
-<!-- END ACCH-3.2.12-STAGE2 -->
+- Los hechos de cierre deben estar respaldados por commits y etiquetas firmadas.
+- Toda integración debe ser lineal, verificable y con CI verde.
+- Los contratos v1 congelados no se modifican de forma retroactiva.
+- Las deudas transferidas se registran en la siguiente task sin reabrir TASK 4.
+- Las pruebas de red se limitan a loopback, laboratorios propios o alcance
+  expresamente autorizado.

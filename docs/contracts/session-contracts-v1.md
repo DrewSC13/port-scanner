@@ -4,17 +4,20 @@
 
 ```text
 CONTRACT=CSR-CICADAPORT-TASK-4-001
+CONTRACT_VERSION=1.0-DEFINITIVA
+STATUS=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
 SUBTASK=4.1
+SUBTASK_COMMIT=8229202c5c9ea508961039fdf6de432aeb76f212
 SCAN_PLAN_CONTRACT_VERSION=1
 SESSION_CHECKPOINT_CONTRACT_VERSION=1
 SESSION_MANIFEST_CONTRACT_VERSION=1
-IMPLEMENTATION=EXECUTABLE_MODELS_ONLY
-ORCHESTRATOR_INTEGRATION=NOT_STARTED
+IMPLEMENTATION=EXECUTABLE_AND_INTEGRATED
+ORCHESTRATOR_INTEGRATION=COMPLETED
 ```
 
-SUBTASK 4.1 incorpora modelos ejecutables y validación estricta. No habilita aún
-persistencia incremental, reanudación real, opciones públicas de CLI ni cambios
-en Rust o Go.
+SUBTASK 4.1 incorporó modelos ejecutables y validación estricta. Su contrato
+permanece congelado; la persistencia, reanudación e interfaces públicas se
+materializaron posteriormente sin cambiar sus campos ni versiones.
 
 ## `scan_plan` v1
 
