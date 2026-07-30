@@ -87,3 +87,43 @@ def test_attestation_plan_schema_is_documented_in_build_script() -> None:
     assert marker in source
     assert '"predicate": "https://slsa.dev/provenance/v1"' in source
     assert '"sbom": "cicadaport.cdx.json"' in source
+
+
+def test_static_contract_runner_is_stdlib_only() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    runner_path = ROOT / "scripts" / "run_static_contract_tests.py"
+    runner = runner_path.read_text(encoding="utf-8")
+    command = (
+        "python -I -S scripts/run_static_contract_tests.py "
+        "tests/test_task_5_5_supply_chain.py"
+    )
+    assert command in workflow
+    assert "pytest" not in runner
+    assert "importlib.util" in runner
+    assert "inspect.getmembers" in runner
+    assert "STATIC_CONTRACTS=PASS" in runner
+
+
+def test_acceptance_binds_contract_base_and_current_signed_head() -> None:
+    runner = (
+        ROOT / "scripts" / "run_task_5_5_acceptance.sh"
+    ).read_text(encoding="utf-8")
+    assert (
+        'CONTRACT_BASE_COMMIT="'
+        "845ba78330d969685b15895d05040abfaa8cfd86"
+        '"'
+    ) in runner
+    assert (
+        'EXPECTED_HEAD="${EXPECTED_HEAD:-'
+        '$(git -C "$ROOT" rev-parse HEAD)}"'
+    ) in runner
+    assert (
+        'test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"'
+    ) in runner
+    assert (
+        'git merge-base --is-ancestor '
+        '"$CONTRACT_BASE_COMMIT" "$EXPECTED_HEAD"'
+    ) in runner
+    assert "ACCEPTANCE_PRECONDITIONS=BEGIN" in runner
+    assert "ACCEPTANCE_PRECONDITIONS=PASS" in runner
+    assert '"head_commit": head_commit' in runner

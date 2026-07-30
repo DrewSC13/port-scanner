@@ -8,6 +8,9 @@ TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 EVIDENCE_DIR="$EVIDENCE_ROOT/$TIMESTAMP"
 LOG_FILE="$EVIDENCE_DIR/task-5-5-supply-chain-acceptance-run.log"
 PYTHON="${PYTHON:-$ROOT/.venv/bin/python}"
+CONTRACT_BASE_COMMIT="845ba78330d969685b15895d05040abfaa8cfd86"
+EXPECTED_HEAD="${EXPECTED_HEAD:-$(git -C "$ROOT" rev-parse HEAD)}"
+export CONTRACT_BASE_COMMIT EXPECTED_HEAD
 mkdir -p "$EVIDENCE_DIR"
 umask 077
 
@@ -18,21 +21,36 @@ export GH_PAGER=cat
 export PAGER=cat
 ROOT="/home/cicada/Development/GitHub/port-scanner"
 LOG_ROOT="/home/cicada/Development/GitHub/port-scanner-local-patches"
-BASE_COMMIT="845ba78330d969685b15895d05040abfaa8cfd86"
+CONTRACT_BASE_COMMIT="${CONTRACT_BASE_COMMIT:?}"
+EXPECTED_HEAD="${EXPECTED_HEAD:?}"
 BRANCH="feat/task-5-enterprise-engine-production-hardening"
 PYTHON="$ROOT/.venv/bin/python"
 AUDIT_V2="$LOG_ROOT/task-5-5-supply-chain-audit-v2-20260730T161746Z.log"
 AUDIT_V2_SHA256="2eefa0e663b4c4d8cad55186a5b4e0c5fd86eee8ba2b978e49cd281e30536e8d"
 cd "$ROOT"
 
+printf '%s\n' \
+  "CONTRACT_BASE_COMMIT=$CONTRACT_BASE_COMMIT" \
+  "ACCEPTANCE_HEAD_COMMIT=$EXPECTED_HEAD" \
+  'ACCEPTANCE_PRECONDITIONS=BEGIN'
+
 test "$(git branch --show-current)" = "$BRANCH"
-test "$(git rev-parse HEAD)" = "$BASE_COMMIT"
+test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
 test -z "$(git diff --name-only)"
 test -n "$(git diff --cached --name-only)"
-git verify-commit "$BASE_COMMIT"
+git verify-commit "$CONTRACT_BASE_COMMIT"
+git verify-commit "$EXPECTED_HEAD"
+git merge-base --is-ancestor "$CONTRACT_BASE_COMMIT" "$EXPECTED_HEAD"
+test "$(git rev-parse "origin/$BRANCH")" = "$EXPECTED_HEAD"
 git verify-tag task-4
 test "$(sha256sum "$AUDIT_V2" | awk '{print $1}')" = "$AUDIT_V2_SHA256"
 grep -Fq 'SUBTASK_5_5_INITIAL_AUDIT_V2=PASS' "$AUDIT_V2"
+
+printf '%s\n' \
+  'ACCEPTANCE_PRECONDITIONS=PASS' \
+  'CONTRACT_BASE_ANCESTRY=PASS' \
+  'ACCEPTANCE_HEAD_SIGNATURE=PASS' \
+  'REMOTE_BRANCH_SYNCHRONIZED=PASS'
 
 CHANGED="$(git diff --cached --name-only)"
 test -z "$(printf '%s\n' "$CHANGED" | grep -E '^(rust-core/|go-banner/|src/session|src/contracts\.py$)' || true)"
@@ -64,7 +82,7 @@ PYTHON="$workspace/venv/bin/python" ./scripts/verify_reproducible_release.sh
 export PATH="$LOG_ROOT/task-4-closure-audit-toolchain/python/bin:$LOG_ROOT/task-4-closure-audit-toolchain/cargo/bin:$LOG_ROOT/task-4-closure-audit-toolchain/go/bin:$PATH"
 ./scripts/audit_dependencies.sh
 
-test "$(git rev-parse HEAD)" = "$BASE_COMMIT"
+test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
 test -z "$(git diff --name-only)"
 git diff --cached --check
 
@@ -82,6 +100,8 @@ printf '%s\n' \
   'DEPENDENCY_AUDITS=PASS' \
   'RELEASE_MANIFEST_AND_HASHES=PASS' \
   'BUILD_IDENTITY_TRACEABILITY=PASS' \
+  "CONTRACT_BASE_COMMIT=$CONTRACT_BASE_COMMIT" \
+  "ACCEPTANCE_HEAD_COMMIT=$EXPECTED_HEAD" \
   'PUBLIC_CONTRACT_VERSION=1' \
   'SERVICE_EVIDENCE_CONTRACT_VERSION=2' \
   'RUST_ENGINE_CHANGES=0' \
@@ -97,7 +117,7 @@ RETURN_CODE=${PIPESTATUS[0]}
 set -e
 
 if [[ "$RETURN_CODE" -eq 0 ]]; then
-  python3 - "$EVIDENCE_DIR" <<'EVIDENCEPY'
+  python3 - "$EVIDENCE_DIR" "$EXPECTED_HEAD" <<'EVIDENCEPY'
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -105,6 +125,7 @@ from pathlib import Path
 import sys
 
 root = Path(sys.argv[1])
+head_commit = sys.argv[2]
 log = root / "task-5-5-supply-chain-acceptance-run.log"
 payload = {
     "schema": "cicadaport-task-5-5-acceptance-v1",
@@ -112,6 +133,7 @@ payload = {
     "status": "PASS",
     "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     "base_commit": "845ba78330d969685b15895d05040abfaa8cfd86",
+    "head_commit": head_commit,
     "log_sha256": hashlib.sha256(log.read_bytes()).hexdigest(),
     "controls": {
         "immutable_actions": True,
@@ -132,6 +154,7 @@ payload = {
     "- Contract: `OSCR-CICADAPORT-5.5-001`\n"
     "- Status: `PASS`\n"
     "- Base: `845ba78330d969685b15895d05040abfaa8cfd86`\n"
+    f"- Head: `{head_commit}`\n"
     f"- Log SHA-256: `{payload['log_sha256']}`\n",
     encoding="utf-8",
 )
