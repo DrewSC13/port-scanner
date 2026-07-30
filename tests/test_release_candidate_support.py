@@ -147,4 +147,4 @@ def test_ci_declares_supported_matrix_and_artifacts() -> None:
     ) in workflow
     assert "build_release_artifacts.sh" in workflow
     assert "test_release_artifacts.sh" in workflow
-    assert "actions/upload-artifact@v4" in workflow
+    assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in workflow

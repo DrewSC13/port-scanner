@@ -443,3 +443,12 @@ Los reportes añaden de forma compatible el estado, la razón, la dirección y l
 técnica. TXT, JSON, CSV y HTML identifican también los motores efectivos
 `rust` y `go` —o `no usado` cuando la fase de banners está desactivada—; JSON
 incluye además la versión del contrato.
+
+
+## Supply chain y reproducibilidad de release
+
+TASK 5.5 fija cada GitHub Action por SHA completa, instala las herramientas de
+release desde un lock Python con hashes, genera SBOM CycloneDX 1.6 y manifiestos
+de identidad, compara builds byte a byte y configura attestations Sigstore/SLSA.
+Estos controles endurecen la RC existente; no publican una nueva versión ni
+amplían las capacidades de red.

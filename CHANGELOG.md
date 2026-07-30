@@ -47,6 +47,13 @@ Python distribution versions use the equivalent PEP 440 spelling.
 
 ### Security
 
+- Release workflows pin every external Action to a reviewed commit SHA, migrate
+  artifact handling to Node.js 24-compatible actions and verify signed GitHub
+  attestations.
+- Release/security tools use a Python 3.13 hash lock; builds emit CycloneDX 1.6,
+  build identity, artifact manifests and reproducibility evidence.
+- Bandit, Gitleaks, dependency audits and immutable update policies extend the
+  supply-chain gate without adding network-scanning capabilities.
 - Go evidence display removes terminal escape sequences, C0/C1 controls, bidi
   overrides and dangerous invisibles while hashing the captured payload.
 - TLS observation never equates an unverified certificate with a verified one,

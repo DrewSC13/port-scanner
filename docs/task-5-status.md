@@ -15,9 +15,12 @@ SUBTASK_5_2_CI_RUN=30548790956
 SUBTASK_5_3=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
 SUBTASK_5_3_COMMIT=7bac7fff3c2f0e14db74505923e0e5f64edc7eb7
 SUBTASK_5_3_CI_RUN=30556210226
-SUBTASK_5_4=IN_MATERIAL_IMPLEMENTATION
-SUBTASK_5_4_BASE=7bac7fff3c2f0e14db74505923e0e5f64edc7eb7
-SUBTASK_5_5=BLOCKED_NOT_STARTED
+SUBTASK_5_4=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
+SUBTASK_5_4_COMMIT=845ba78330d969685b15895d05040abfaa8cfd86
+SUBTASK_5_4_CI_RUN=30559757216
+SUBTASK_5_5=OPEN_AUTHORIZED_IN_IMPLEMENTATION
+SUBTASK_5_5_CONTRACT=OSCR-CICADAPORT-5.5-001
+SUBTASK_5_5_BASE=845ba78330d969685b15895d05040abfaa8cfd86
 SUBTASK_5_6=BLOCKED_NOT_STARTED
 ```
 
@@ -80,27 +83,33 @@ Rust TCP Engine v2 quedó cerrado y congelado sobre
 estado `success`. Se preservan `tcp_connect`, el contrato público v1 y las
 barreras contra técnicas raw.
 
-## SUBTASK 5.4 — Implementación material autorizada
+## SUBTASK 5.4 — Cerrada y congelada
+
+Go Service Evidence Engine v2 quedó cerrado y congelado sobre
+`845ba78330d969685b15895d05040abfaa8cfd86`, con CI remoto `30559757216` en
+estado `success`. Se preservan los contratos públicos v1, `service_evidence`
+v2, Rust TCP Engine v2 y Session Store v2.
+
+## SUBTASK 5.5 — Implementación material autorizada
+
+Contrato candidato: `OSCR-CICADAPORT-5.5-001`, versión `1.0-CANDIDATE`.
 
 Alcance activo:
 
-- streaming incremental de un resultado por endpoint concluido;
-- concurrencia y canales acotados con backpressure;
-- cancelación determinista ante cierre del consumidor;
-- timeouts internos por conexión, TLS, escritura, primer byte, lectura ociosa y
-  duración total;
-- lectura incremental limitada, hash y metadatos de truncamiento;
-- evidencia TLS separando negociación, presencia y verificación;
-- sanitización de terminal, controles bidi e invisibles;
-- registro versionado con probes `passive` y `safe` habilitados por defecto;
-- benchmark y aceptación exclusivamente sobre loopback.
+- fijación inmutable de GitHub Actions y dependencias de release;
+- migración de Actions heredadas de Node.js 20 a Node.js 24;
+- lock Python exacto y hasheado para release/security;
+- SBOM CycloneDX 1.6 y manifiesto de identidad de build;
+- provenance SLSA y firma/verificación Sigstore mediante attestations;
+- builds reproducibles, SAST, secret scanning y auditorías;
+- trazabilidad de hashes sin publicar una nueva release candidate.
 
 Restricciones activas:
 
-- SUBTASK 5.1, SUBTASK 5.2 y SUBTASK 5.3 permanecen cerradas y congeladas;
-- `rust-core/` y Session Store v2 no pueden modificarse materialmente;
-- `banner_request` y `banner_result` públicos permanecen en versión 1;
-- no se añaden detección de vulnerabilidades ni probes `restricted` por defecto;
-- SUBTASK 5.5 y SUBTASK 5.6 continúan bloqueadas;
-- el cierre de 5.4 exige aceptación, validación integral, commit firmado, CI
-  remoto verde y aprobación formal del Arquitecto del Proyecto.
+- SUBTASKS 5.1–5.4 y TASK 4 permanecen cerradas y congeladas;
+- no pueden modificarse materialmente Rust, Go, Session Store v2 ni los
+  contratos públicos v1 o `service_evidence` v2;
+- no se añaden capacidades de red, detección de vulnerabilidades ni escaneo
+  externo;
+- no se integra en `main`, no se crea etiqueta y no se publica una nueva RC;
+- SUBTASK 5.6 permanece bloqueada hasta el cierre formal de 5.5.

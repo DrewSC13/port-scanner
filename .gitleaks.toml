@@ -1,0 +1,14 @@
+title = "CicadaPort gitleaks policy"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated and third-party build outputs are never source inputs"
+paths = [
+  '''(^|/)build/''',
+  '''(^|/)dist/''',
+  '''(^|/)rust-core/target/''',
+  '''(^|/)\.venv/''',
+  '''(^|/)__pycache__/''',
+]
