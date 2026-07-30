@@ -640,8 +640,9 @@ class TestReportableResultFiltering(unittest.TestCase):
         self.assertEqual(rows[2]["Service"], "'\tSAFE")
         self.assertEqual(
             rows[2]["Banner"],
-            '\'\ufeff=HYPERLINK("https://example.invalid")',
+            '\\ufeff=HYPERLINK("https://example.invalid")',
         )
+        self.assertNotIn("\ufeff", rows[2]["Banner"])
 
 
 if __name__ == "__main__":

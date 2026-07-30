@@ -9,6 +9,9 @@ Python distribution versions use the equivalent PEP 440 spelling.
 ### Added
 
 - TASK 5 architecture, threat model and candidate v2 contracts.
+- Transactional Session Store v2 with SQLite WAL, normalized result rows,
+  bounded batches, integrity history and read-only migration from v1.
+- Secure Artifact Writer for reports, public event streams and export bundles.
 - A loopback-only, hashed enterprise baseline for Rust, Go, Session Store v1
   and report-security behavior.
 - Versioned reproducible session plans, checkpoints and manifests.
@@ -20,12 +23,22 @@ Python distribution versions use the equivalent PEP 440 spelling.
 ### Changed
 
 - Session state is persisted before confirmation events are emitted.
+- New and resumed public sessions use Store v2 while preserving session, result
+  and event contracts v1.
+- Balanced persistence confirms at most 128 results or every 250 ms,
+  whichever occurs first; cancellation and failure flush observed results.
+- Session-plan validation is cached by fingerprint in the transactional hot
+  path and UTC timestamps are ordered as instants rather than strings.
+- Strict durability confirms each result independently.
 - CLI and TUI now share the same immutable execution plan and resume semantics.
 
 ### Security
 
 - TASK 5.1 documents scope enforcement, binary identity, secure artifact
   writing, bounded resources and hostile-banner handling before implementation.
+- Reports and events are created with private modes, symlink rejection,
+  exclusive/atomic confirmation and directory durability.
+- Human-readable outputs neutralize terminal, bidi and invisible controls.
 - Session stores use restrictive permissions, immutable generations, hashes,
   symlink rejection and atomic `CURRENT.json` replacement.
 - TASK 4 remains limited to authorized TCP-connect scanning and optional safe

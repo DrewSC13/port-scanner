@@ -8,6 +8,7 @@ from typing import Any, List, Optional
 
 from src.contracts import PortState, SCAN_CONTRACT_VERSION
 from src.scanner import ScanResult
+from src.secure_artifacts import neutralize_text_controls, secure_write_text
 
 
 class ReportGenerator:
@@ -16,7 +17,7 @@ class ReportGenerator:
     @staticmethod
     def _neutralize_csv_cell(value: Any) -> str:
         """Evita que una hoja de cálculo interprete datos como fórmulas."""
-        text = str(value)
+        text = neutralize_text_controls(value)
         candidate = text.lstrip(" \t\r\n\ufeff")
 
         if text.startswith(("\t", "\r", "\n")) or candidate.startswith(
@@ -64,7 +65,7 @@ class ReportGenerator:
         report = [
             "=" * 60,
             "REPORTE CICADAPORT",
-            f"Objetivo: {target}",
+            f"Objetivo: {neutralize_text_controls(target)}",
             f"Fecha: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             f"Puertos abiertos: {len(open_results)}",
         ]
@@ -82,19 +83,25 @@ class ReportGenerator:
             report.append(f"Estado: {result.state.value}")
             report.append(f"Razón: {result.reason.value}")
             if result.address:
-                report.append(f"Dirección: {result.address}")
+                report.append(
+                    f"Dirección: {neutralize_text_controls(result.address)}"
+                )
             report.append(f"Técnica: {result.technique.value}")
-            report.append(f"Servicio: {result.service}")
+            report.append(
+                f"Servicio: {neutralize_text_controls(result.service)}"
+            )
             if result.banner:
-                report.append(f"Banner: {result.banner.strip()}")
+                report.append(
+                    "Banner: "
+                    + neutralize_text_controls(result.banner).strip()
+                )
             report.append(f"Tiempo de respuesta: {result.response_time:.3f}s")
             report.append("-" * 40)
 
         report_content = "\n".join(report)
 
         if output_file:
-            with open(output_file, "w", encoding="utf-8") as f:
-                f.write(report_content)
+            secure_write_text(output_file, report_content)
 
         return report_content
 
@@ -134,8 +141,7 @@ class ReportGenerator:
         json_content = json.dumps(report_data, indent=2, ensure_ascii=False)
 
         if output_file:
-            with open(output_file, "w", encoding="utf-8") as f:
-                f.write(json_content)
+            secure_write_text(output_file, json_content)
 
         return json_content
 
@@ -213,8 +219,7 @@ class ReportGenerator:
         csv_content = output.getvalue()
 
         if output_file:
-            with open(output_file, "w", newline="", encoding="utf-8") as f:
-                f.write(csv_content)
+            secure_write_text(output_file, csv_content)
 
         return csv_content
 
@@ -239,25 +244,37 @@ class ReportGenerator:
             Contenido HTML del reporte
         """
         open_results = ReportGenerator._get_reportable_results(results)
-        safe_target = html.escape(str(target), quote=True)
-        safe_scan_engine = html.escape(str(scan_engine or ""), quote=True)
-        safe_banner_engine = html.escape(str(banner_engine or ""), quote=True)
+        safe_target = html.escape(
+            neutralize_text_controls(target), quote=True
+        )
+        safe_scan_engine = html.escape(
+            neutralize_text_controls(scan_engine or ""), quote=True
+        )
+        safe_banner_engine = html.escape(
+            neutralize_text_controls(banner_engine or ""), quote=True
+        )
         result_blocks = []
 
         for result in open_results:
-            safe_service = html.escape(str(result.service), quote=True)
+            safe_service = html.escape(
+                neutralize_text_controls(result.service), quote=True
+            )
             safe_protocol = html.escape(
-                str(result.protocol).upper(),
+                neutralize_text_controls(result.protocol).upper(),
                 quote=True,
             )
             safe_state = html.escape(result.state.value, quote=True)
             safe_reason = html.escape(result.reason.value, quote=True)
-            safe_address = html.escape(result.address, quote=True)
+            safe_address = html.escape(
+                neutralize_text_controls(result.address), quote=True
+            )
             safe_technique = html.escape(result.technique.value, quote=True)
             banner_block = ""
 
             if result.banner:
-                safe_banner = html.escape(str(result.banner), quote=True)
+                safe_banner = html.escape(
+                    neutralize_text_controls(result.banner), quote=True
+                )
                 banner_block = (
                     '<div class="banner"><strong>Banner:</strong>'
                     f"<pre>{safe_banner}</pre></div>"
@@ -306,7 +323,6 @@ class ReportGenerator:
         """
 
         if output_file:
-            with open(output_file, "w", encoding="utf-8") as f:
-                f.write(html_template)
+            secure_write_text(output_file, html_template)
 
         return html_template

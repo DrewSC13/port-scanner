@@ -4,15 +4,13 @@
 TASK_4=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
 TASK_4_CLOSURE_COMMIT=bfaa7e6c2989dc923b418862ce9243e68e3f569c
 TASK_4_SIGNED_TAG=task-4
-TASK_4_TAG_OBJECT=b9bb0201b31a70522e8c1886db2d19605725d523
-TASK_4_MAIN_CI_RUN=30503087371
-TASK_5=OPEN_AUTHORIZED
+TASK_5=IN_IMPLEMENTATION
 TASK_5_BRANCH=feat/task-5-enterprise-engine-production-hardening
-TASK_5_BASE=main@bfaa7e6c2989dc923b418862ce9243e68e3f569c
-TASK_5_CONTRACT=CEPH-CICADAPORT-TASK-5-001
-TASK_5_CONTRACT_VERSION=1.0-CANDIDATE
-SUBTASK_5_1=IN_MATERIAL_IMPLEMENTATION_RESOURCE_BASELINE_PENDING
-SUBTASK_5_2=BLOCKED_NOT_STARTED
+SUBTASK_5_1=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
+SUBTASK_5_1_COMMIT=045dabda6eea840e3cbe065407e7132d88ba9963
+SUBTASK_5_1_CI_RUN=30506742043
+SUBTASK_5_2=IN_MATERIAL_IMPLEMENTATION
+SUBTASK_5_2_BASE=045dabda6eea840e3cbe065407e7132d88ba9963
 SUBTASK_5_3=BLOCKED_NOT_STARTED
 SUBTASK_5_4=BLOCKED_NOT_STARTED
 SUBTASK_5_5=BLOCKED_NOT_STARTED
@@ -46,7 +44,7 @@ No autoriza modificaciones materiales en:
 | Arquitectura objetivo | `ARCH-CICADAPORT-5.1-001` | CANDIDATE |
 | Modelo de amenazas | `TM-CICADAPORT-5.1-001` | CANDIDATE |
 | Baseline reproducible | `CEPH-CICADAPORT-5.1-BL-001` | EXECUTED_REVIEWED_PASS |
-| Baseline suplementaria de recursos | `CEPH-CICADAPORT-5.1-RB-001` | EXECUTION_1_FAILED_INSTRUMENTATION_DEFECT_RETRY_PENDING |
+| Baseline suplementaria de recursos | `CEPH-CICADAPORT-5.1-RB-001` | EXECUTED_REVIEWED_PASS; RB-001_PRESERVED_CORRECTED |
 | Session Store v2 | `SSV2-CICADAPORT-5.2-001` | CANDIDATE |
 | Rust TCP Engine v2 | `RTEV2-CICADAPORT-5.3-001` | CANDIDATE |
 | Go Service Evidence v2 | `GSEV2-CICADAPORT-5.4-001` | CANDIDATE |
@@ -62,3 +60,25 @@ implementación funcional de 5.2, 5.3 o 5.4 exige:
 3. revisión de resultados y presupuestos;
 4. cierre firmado de SUBTASK 5.1;
 5. autorización formal de la siguiente subtask.
+
+
+## SUBTASK 5.2 — Implementación material autorizada
+
+Alcance activo:
+
+- Session Store v2 transaccional sobre SQLite WAL;
+- persistencia incremental por `N=128` o `T=250 ms`;
+- rango TCP completo, p95 de commits, cancelación y recuperación `SIGKILL`;
+- migración read-only e idempotente desde stores v1;
+- recuperación, auditoría y exportación portable;
+- Secure Artifact Writer para reportes, eventos y bundles;
+- pruebas y aceptación sin red externa.
+
+Restricciones activas:
+
+- SUBTASK 5.1 permanece cerrada y congelada;
+- `rust-core/` y `go-banner/` no pueden modificarse;
+- los contratos públicos v1 permanecen estables;
+- SUBTASK 5.3 y posteriores continúan bloqueadas;
+- el cierre de 5.2 requiere evidencia, commit firmado, CI verde y aprobación
+  formal del Arquitecto del Proyecto.

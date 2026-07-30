@@ -35,11 +35,14 @@ alcance TCP-connect y banner grabbing documentado.
 
 ## Estado de TASK 5
 
-TASK 5 — Enterprise Engine and Production Hardening — está formalmente abierta
-sobre `main@bfaa7e6c2989dc923b418862ce9243e68e3f569c`. SUBTASK 5.1 define
-la arquitectura, contratos candidatos, modelo de amenazas e instrumentación de
-baseline. Todavía no modifica materialmente el Session Store, Rust, Go, CLI,
-TUI ni los contratos públicos v1. Consulta [docs/task-5-status.md](docs/task-5-status.md).
+TASK 5 — Enterprise Engine and Production Hardening — está en implementación
+sobre `feat/task-5-enterprise-engine-production-hardening`. SUBTASK 5.1 quedó
+cerrada y congelada en `045dabda6eea840e3cbe065407e7132d88ba9963`;
+SUBTASK 5.2 implementa Session Store v2 y escritura segura de artefactos sin
+modificar los motores Rust/Go ni los contratos públicos v1. El perfil balanced
+confirma por lotes de 128 resultados o cada 250 ms, y la aceptación cubre el
+rango TCP completo, cancelación y recuperación tras terminación abrupta. Consulta
+[docs/task-5-status.md](docs/task-5-status.md).
 
 ## Características Principales
 
@@ -374,6 +377,21 @@ cicadaport localhost --profile standard --no-banner-grab
 Go negocia TLS en los puertos cifrados conocidos, envía un único `HEAD` solo a
 una lista cerrada de puertos HTTP/HTTPS y se limita a lectura pasiva en los
 demás servicios.
+
+## Persistencia transaccional y artefactos privados
+
+Las sesiones nuevas usan Session Store v2 sobre SQLite WAL. Los resultados se
+confirman por lotes normalizados y el checkpoint público v1 se reconstruye al
+leer, por lo que la compatibilidad externa permanece estable sin generar dos
+archivos completos por puerto. El perfil `balanced` confirma hasta 128
+resultados por transacción; el perfil `strict` confirma uno por transacción.
+Las sesiones v1 se migran de manera verificable, idempotente y de solo lectura:
+los archivos fuente permanecen intactos para auditoría y rollback.
+
+Los reportes, eventos y bundles usan directorios `0700`, archivos `0600`,
+creación exclusiva, temporales en el mismo filesystem, `fsync`, rechazo de
+symlinks y no sobrescritura por defecto. TXT, CSV y HTML neutralizan controles
+C0/C1, ESC/BEL y marcas bidi/invisibles antes de presentarlos a una persona.
 
 ## Resultados y reportes
 

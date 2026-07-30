@@ -27,9 +27,9 @@ from src.session import ScanPlan, SessionCheckpoint, SessionStatus
 from src.session_batch import (
     BatchSessionUpdate,
     ExecutorFactory,
-    MultiTargetCheckpointStore,
     MultiTargetSessionRunner,
 )
+from src.session_store_v2 import SessionStoreV2
 from src.session_cli import (
     PUBLIC_SESSION_EVENT_FIELDS,
     PUBLIC_SESSION_EVENT_VERSION,
@@ -386,7 +386,7 @@ def session_requires_batch(
             raise SessionPersistenceError(
                 "--resume requiere un directorio de sesión existente y regular."
             )
-        store = MultiTargetCheckpointStore(session_dir)
+        store = SessionStoreV2.multi_target(session_dir)
         checkpoint = store.load()
         return (
             len(checkpoint.plan.requested_targets) > 1
@@ -419,7 +419,7 @@ def prepare_batch_session(
             raise SessionPersistenceError(
                 "--resume requiere un directorio de sesión existente y regular."
             )
-        checkpoint = MultiTargetCheckpointStore(session_dir).load()
+        checkpoint = SessionStoreV2.multi_target(session_dir).load()
         return PreparedBatchSession(
             plan=checkpoint.plan,
             session_dir=session_dir,
@@ -634,7 +634,7 @@ def run_prepared_batch_session(
             emitter=projector.native_emitter(identity)
         )
 
-    store = MultiTargetCheckpointStore(prepared.session_dir)
+    store = SessionStoreV2.multi_target(prepared.session_dir)
     runner = MultiTargetSessionRunner(
         store,
         factory,
@@ -744,7 +744,7 @@ def execute_batch_session_cli(
         from src.session_tui import SessionTuiRequest
 
         cli._launch_tui(SessionTuiRequest(prepared=prepared))
-        return MultiTargetCheckpointStore(prepared.session_dir).load()
+        return SessionStoreV2.multi_target(prepared.session_dir).load()
 
     checkpoint, outcome = run_prepared_batch_session(
         prepared,
