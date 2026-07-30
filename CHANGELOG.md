@@ -8,6 +8,10 @@ Python distribution versions use the equivalent PEP 440 spelling.
 
 ### Added
 
+- Go Service Evidence Engine v2 with a separate structured-evidence channel,
+  phase-aware timeouts, truthful TLS metadata and versioned passive/safe probes.
+- Loopback-only TASK 5.4 acceptance for streaming latency, backpressure,
+  downstream cancellation, resource ceilings and public-v1 compatibility.
 - Rust TCP Engine v2 with one-time target resolution, atomic work dispatch,
   bounded result backpressure and deterministic downstream cancellation.
 - Offline, hashed TASK 5.3 acceptance for throughput, hostname parity,
@@ -27,6 +31,10 @@ Python distribution versions use the equivalent PEP 440 spelling.
 
 ### Changed
 
+- Go banner results now stream as endpoints complete through bounded queues;
+  final presentation ordering remains outside the native engine.
+- Banner reads are incremental and limited to 4,096 bytes with terminator, EOF,
+  idle-timeout and truncation accounting.
 - Session state is persisted before confirmation events are emitted.
 - New and resumed public sessions use Store v2 while preserving session, result
   and event contracts v1.
@@ -39,6 +47,10 @@ Python distribution versions use the equivalent PEP 440 spelling.
 
 ### Security
 
+- Go evidence display removes terminal escape sequences, C0/C1 controls, bidi
+  overrides and dangerous invisibles while hashing the captured payload.
+- TLS observation never equates an unverified certificate with a verified one,
+  and no active/restricted probe is enabled by default.
 - TASK 5.1 documents scope enforcement, binary identity, secure artifact
   writing, bounded resources and hostile-banner handling before implementation.
 - Reports and events are created with private modes, symlink rejection,

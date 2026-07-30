@@ -36,12 +36,13 @@ alcance TCP-connect y banner grabbing documentado.
 ## Estado de TASK 5
 
 TASK 5 — Enterprise Engine and Production Hardening — está en implementación
-sobre `feat/task-5-enterprise-engine-production-hardening`. SUBTASK 5.1 quedó
-cerrada y congelada en `045dabda6eea840e3cbe065407e7132d88ba9963`;
-SUBTASK 5.2 implementa Session Store v2 y escritura segura de artefactos sin
-modificar los motores Rust/Go ni los contratos públicos v1. El perfil balanced
-confirma por lotes de 128 resultados o cada 250 ms, y la aceptación cubre el
-rango TCP completo, cancelación y recuperación tras terminación abrupta. Consulta
+sobre `feat/task-5-enterprise-engine-production-hardening`. SUBTASK 5.1,
+SUBTASK 5.2 y SUBTASK 5.3 están cerradas y congeladas. SUBTASK 5.4 desarrolla
+Go Service Evidence Engine v2 sin alterar los contratos públicos v1: stdout
+conserva `banner_result` v1 y la evidencia estructurada v2 se transmite por un
+canal interno separado. La implementación añade streaming incremental,
+backpressure, cancelación, lectura limitada, TLS veraz, sanitización segura y
+probes versionados `passive`/`safe`. Consulta
 [docs/task-5-status.md](docs/task-5-status.md).
 
 ## Características Principales
@@ -66,6 +67,15 @@ resuelve cada objetivo una sola vez, distribuye puertos mediante un índice
 atómico y aplica backpressure con un canal acotado. La aceptación oficial se
 ejecuta únicamente sobre loopback y compara rendimiento y recursos contra la
 baseline congelada de TASK 5.1.
+
+## Go Service Evidence Engine v2 — candidato TASK 5.4
+
+El motor Go mantiene `banner_request`/`banner_result` v1 y emite cada resultado
+al finalizar el endpoint, sin acumular ni ordenar previamente toda la salida.
+Una evidencia v2 opcional registra probe, fase, longitudes, truncamiento, hash,
+timeouts y TLS observado por un descriptor separado. Solo los probes
+`passive-banner@1` y `http-head@1` están permitidos por defecto; no se incorpora
+detección de vulnerabilidades.
 
 ## Estado técnico y hoja de ruta
 

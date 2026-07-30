@@ -12,9 +12,11 @@ SUBTASK_5_1_CI_RUN=30506742043
 SUBTASK_5_2=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
 SUBTASK_5_2_COMMIT=8ce44caebf90519867d0da7a53a0ec71372cd741
 SUBTASK_5_2_CI_RUN=30548790956
-SUBTASK_5_3=IN_MATERIAL_IMPLEMENTATION
-SUBTASK_5_3_BASE=8ce44caebf90519867d0da7a53a0ec71372cd741
-SUBTASK_5_4=BLOCKED_NOT_STARTED
+SUBTASK_5_3=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
+SUBTASK_5_3_COMMIT=7bac7fff3c2f0e14db74505923e0e5f64edc7eb7
+SUBTASK_5_3_CI_RUN=30556210226
+SUBTASK_5_4=IN_MATERIAL_IMPLEMENTATION
+SUBTASK_5_4_BASE=7bac7fff3c2f0e14db74505923e0e5f64edc7eb7
 SUBTASK_5_5=BLOCKED_NOT_STARTED
 SUBTASK_5_6=BLOCKED_NOT_STARTED
 ```
@@ -71,25 +73,34 @@ Writer quedaron cerrados y congelados sobre
 `8ce44caebf90519867d0da7a53a0ec71372cd741`, con CI remoto `30548790956` en
 estado `success`. Las incidencias `AC-001`, `FV-001` y `CV-001` están cerradas.
 
-## SUBTASK 5.3 — Implementación material autorizada
+## SUBTASK 5.3 — Cerrada y congelada
+
+Rust TCP Engine v2 quedó cerrado y congelado sobre
+`7bac7fff3c2f0e14db74505923e0e5f64edc7eb7`, con CI remoto `30556210226` en
+estado `success`. Se preservan `tcp_connect`, el contrato público v1 y las
+barreras contra técnicas raw.
+
+## SUBTASK 5.4 — Implementación material autorizada
 
 Alcance activo:
 
-- Rust TCP Engine v2 sobre técnica `tcp_connect`;
-- resolución única del objetivo antes del ciclo de puertos;
-- concurrencia acotada con índice atómico;
-- backpressure mediante canal de resultados bounded;
-- streaming JSONL incremental;
-- cancelación determinista por cierre del consumidor o terminación del proceso;
-- límites de stdin, workers, canal, diagnósticos, RSS, FDs e hilos;
-- benchmark comparativo contra la baseline congelada de 5.1.
+- streaming incremental de un resultado por endpoint concluido;
+- concurrencia y canales acotados con backpressure;
+- cancelación determinista ante cierre del consumidor;
+- timeouts internos por conexión, TLS, escritura, primer byte, lectura ociosa y
+  duración total;
+- lectura incremental limitada, hash y metadatos de truncamiento;
+- evidencia TLS separando negociación, presencia y verificación;
+- sanitización de terminal, controles bidi e invisibles;
+- registro versionado con probes `passive` y `safe` habilitados por defecto;
+- benchmark y aceptación exclusivamente sobre loopback.
 
 Restricciones activas:
 
-- SUBTASK 5.1 y SUBTASK 5.2 permanecen cerradas y congeladas;
-- `go-banner/` no puede modificarse materialmente;
-- los contratos públicos v1 permanecen estables;
-- no se añaden técnicas raw, SYN scan ni objetivos externos;
-- SUBTASK 5.4 y posteriores continúan bloqueadas;
-- el cierre de 5.3 exige evidencia, commit firmado, CI verde y aprobación
-  formal del Arquitecto del Proyecto.
+- SUBTASK 5.1, SUBTASK 5.2 y SUBTASK 5.3 permanecen cerradas y congeladas;
+- `rust-core/` y Session Store v2 no pueden modificarse materialmente;
+- `banner_request` y `banner_result` públicos permanecen en versión 1;
+- no se añaden detección de vulnerabilidades ni probes `restricted` por defecto;
+- SUBTASK 5.5 y SUBTASK 5.6 continúan bloqueadas;
+- el cierre de 5.4 exige aceptación, validación integral, commit firmado, CI
+  remoto verde y aprobación formal del Arquitecto del Proyecto.
