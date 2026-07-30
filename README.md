@@ -59,6 +59,14 @@ rango TCP completo, cancelación y recuperación tras terminación abrupta. Cons
 - **Validación Avanzada**: Verificación completa de entradas y configuraciones
 - **Estadísticas Detalladas**: Métricas completas del escaneo
 
+## Rust TCP Engine v2 — candidato TASK 5.3
+
+El motor Rust conserva `scan_request`/`port_result` v1 y `tcp_connect`, pero
+resuelve cada objetivo una sola vez, distribuye puertos mediante un índice
+atómico y aplica backpressure con un canal acotado. La aceptación oficial se
+ejecuta únicamente sobre loopback y compara rendimiento y recursos contra la
+baseline congelada de TASK 5.1.
+
 ## Estado técnico y hoja de ruta
 
 El estado congelado, la deuda transitoria clasificada, los subhitos restantes

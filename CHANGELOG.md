@@ -8,6 +8,11 @@ Python distribution versions use the equivalent PEP 440 spelling.
 
 ### Added
 
+- Rust TCP Engine v2 with one-time target resolution, atomic work dispatch,
+  bounded result backpressure and deterministic downstream cancellation.
+- Offline, hashed TASK 5.3 acceptance for throughput, hostname parity,
+  streaming latency and resource limits.
+
 - TASK 5 architecture, threat model and candidate v2 contracts.
 - Transactional Session Store v2 with SQLite WAL, normalized result rows,
   bounded batches, integrity history and read-only migration from v1.

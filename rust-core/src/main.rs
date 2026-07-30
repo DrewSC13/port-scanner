@@ -1,16 +1,21 @@
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
 use std::env;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::process;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
 
 const CONTRACT_VERSION: u8 = 1;
 const NATIVE_EVENT_FD_ENV: &str = "CICADAPORT_NATIVE_EVENT_FD";
+const MAX_REQUEST_BYTES: usize = 8 * 1024 * 1024;
+const MAX_WORKERS: usize = 512;
+const MAX_RESULT_CHANNEL_CAPACITY: usize = 1024;
+const RESULT_CHANNEL_MULTIPLIER: usize = 2;
+const MAX_DIAGNOSTIC_BYTES: usize = 512;
 
 #[derive(Debug, Clone)]
 struct AppConfig {
@@ -230,7 +235,7 @@ fn parse_scan_request(raw_request: &str) -> Result<AppConfig, String> {
     }
 
     let ports = normalize_ports(request.ports)?;
-    let workers = request.workers.min(512).min(ports.len());
+    let workers = request.workers.min(MAX_WORKERS).min(ports.len());
 
     Ok(AppConfig {
         host: request.target.trim().to_string(),
@@ -241,11 +246,18 @@ fn parse_scan_request(raw_request: &str) -> Result<AppConfig, String> {
 }
 
 fn read_stdin() -> Result<String, String> {
-    let mut raw_request = String::new();
-    io::stdin()
-        .read_to_string(&mut raw_request)
+    let stdin = io::stdin();
+    let mut limited = stdin.lock().take((MAX_REQUEST_BYTES + 1) as u64);
+    let mut raw_request = Vec::new();
+    limited
+        .read_to_end(&mut raw_request)
         .map_err(|error| format!("No se pudo leer stdin: {error}"))?;
-    Ok(raw_request)
+    if raw_request.len() > MAX_REQUEST_BYTES {
+        return Err(format!(
+            "Solicitud demasiado grande: máximo {MAX_REQUEST_BYTES} bytes"
+        ));
+    }
+    String::from_utf8(raw_request).map_err(|_| "La solicitud stdin no es UTF-8 válida".to_string())
 }
 
 fn service_name(port: u16) -> &'static str {
@@ -303,20 +315,40 @@ fn service_name(port: u16) -> &'static str {
     }
 }
 
-fn resolve_socket_addr(host: &str, port: u16) -> Option<SocketAddr> {
-    let normalized_host = host
-        .strip_prefix('[')
+fn normalized_host(host: &str) -> &str {
+    host.strip_prefix('[')
         .and_then(|value| value.strip_suffix(']'))
-        .unwrap_or(host);
-
-    (normalized_host, port)
-        .to_socket_addrs()
-        .ok()
-        .and_then(|mut addresses| addresses.next())
+        .unwrap_or(host)
 }
 
-fn address_family(socket_addr: SocketAddr) -> &'static str {
-    if socket_addr.is_ipv4() {
+fn resolve_target(host: &str) -> Result<IpAddr, String> {
+    let normalized = normalized_host(host);
+    if let Ok(address) = normalized.parse::<IpAddr>() {
+        return Ok(address);
+    }
+
+    (normalized, 0)
+        .to_socket_addrs()
+        .map_err(|error| {
+            format!(
+                "No se pudo resolver una dirección para el objetivo: {}",
+                truncate_diagnostic(&error.to_string())
+            )
+        })?
+        .map(|socket| socket.ip())
+        .next()
+        .ok_or_else(|| "No se pudo resolver una dirección para el objetivo".to_string())
+}
+
+#[cfg(test)]
+fn resolve_socket_addr(host: &str, port: u16) -> Option<SocketAddr> {
+    resolve_target(host)
+        .ok()
+        .map(|address| SocketAddr::new(address, port))
+}
+
+fn address_family(address: IpAddr) -> &'static str {
+    if address.is_ipv4() {
         "ipv4"
     } else {
         "ipv6"
@@ -335,43 +367,55 @@ fn classify_connect_error(error: &io::Error) -> (&'static str, &'static str, &'s
     }
 }
 
-fn scan_port(host: &str, port: u16, timeout: Duration) -> ScanResult {
-    let start = Instant::now();
-    let socket_addr = resolve_socket_addr(host, port);
+fn truncate_diagnostic(value: &str) -> String {
+    if value.len() <= MAX_DIAGNOSTIC_BYTES {
+        return value.to_string();
+    }
+    let suffix = "…";
+    let mut end = MAX_DIAGNOSTIC_BYTES.saturating_sub(suffix.len());
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}{}", &value[..end], suffix)
+}
 
-    let Some(socket_addr) = socket_addr else {
-        return ScanResult {
-            contract_version: CONTRACT_VERSION,
-            record_type: "port_result",
-            target: host.to_string(),
-            address: String::new(),
-            address_family: None,
-            host_state: "unknown",
-            port,
-            protocol: "tcp",
-            state: "filtered",
+fn resolution_failed_result(host: &str, port: u16, detail: &str) -> ScanResult {
+    ScanResult {
+        contract_version: CONTRACT_VERSION,
+        record_type: "port_result",
+        target: host.to_string(),
+        address: String::new(),
+        address_family: None,
+        host_state: "unknown",
+        port,
+        protocol: "tcp",
+        state: "filtered",
+        reason: "resolution_failed",
+        technique: "tcp_connect",
+        service: String::new(),
+        banner: None,
+        response_time: 0.0,
+        is_open: Some(false),
+        evidence: ScanEvidence {
             reason: "resolution_failed",
-            technique: "tcp_connect",
-            service: String::new(),
-            banner: None,
-            response_time: start.elapsed().as_secs_f64(),
-            is_open: Some(false),
-            evidence: ScanEvidence {
-                reason: "resolution_failed",
-                source: "rust",
-                detail: Some("No se pudo resolver una dirección para el objetivo".to_string()),
-                errno: None,
-            },
-        };
-    };
+            source: "rust",
+            detail: Some(truncate_diagnostic(detail)),
+            errno: None,
+        },
+    }
+}
+
+fn scan_port(host: &str, address: IpAddr, port: u16, timeout: Duration) -> ScanResult {
+    let start = Instant::now();
+    let socket_addr = SocketAddr::new(address, port);
 
     match TcpStream::connect_timeout(&socket_addr, timeout) {
         Ok(_) => ScanResult {
             contract_version: CONTRACT_VERSION,
             record_type: "port_result",
             target: host.to_string(),
-            address: socket_addr.ip().to_string(),
-            address_family: Some(address_family(socket_addr)),
+            address: address.to_string(),
+            address_family: Some(address_family(address)),
             host_state: "up",
             port,
             protocol: "tcp",
@@ -395,8 +439,8 @@ fn scan_port(host: &str, port: u16, timeout: Duration) -> ScanResult {
                 contract_version: CONTRACT_VERSION,
                 record_type: "port_result",
                 target: host.to_string(),
-                address: socket_addr.ip().to_string(),
-                address_family: Some(address_family(socket_addr)),
+                address: address.to_string(),
+                address_family: Some(address_family(address)),
                 host_state,
                 port,
                 protocol: "tcp",
@@ -410,7 +454,7 @@ fn scan_port(host: &str, port: u16, timeout: Duration) -> ScanResult {
                 evidence: ScanEvidence {
                     reason,
                     source: "rust",
-                    detail: Some(error.to_string()),
+                    detail: Some(truncate_diagnostic(&error.to_string())),
                     errno: error.raw_os_error(),
                 },
             }
@@ -434,59 +478,101 @@ fn run_scan<W: Write>(config: AppConfig, writer: &mut W) -> Result<(), String> {
     let expected_results = config.ports.len();
     let mut events = NativeEventEmitter::from_env(&config)?;
     events.emit("engine_started", "running", None, 0)?;
+
+    let resolved_address = match resolve_target(&config.host) {
+        Ok(address) => address,
+        Err(detail) => {
+            let mut emitted_results = 0;
+            for port in &config.ports {
+                let result = resolution_failed_result(&config.host, *port, &detail);
+                write_jsonl_record(writer, &result)?;
+                emitted_results += 1;
+                events.emit(
+                    "port_completed",
+                    result.state,
+                    Some(result.port),
+                    emitted_results,
+                )?;
+            }
+            events.emit("engine_completed", "success", None, emitted_results)?;
+            return Ok(());
+        }
+    };
+
+    let channel_capacity = config
+        .workers
+        .saturating_mul(RESULT_CHANNEL_MULTIPLIER)
+        .clamp(1, MAX_RESULT_CHANNEL_CAPACITY);
     let host = Arc::new(config.host);
-    let queue = Arc::new(Mutex::new(VecDeque::from(config.ports)));
-    let (sender, receiver) = mpsc::channel::<ScanResult>();
-    let mut handles = Vec::new();
+    let ports = Arc::new(config.ports);
+    let next_index = Arc::new(AtomicUsize::new(0));
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let (sender, receiver) = mpsc::sync_channel::<ScanResult>(channel_capacity);
+    let mut handles = Vec::with_capacity(config.workers);
 
     for _ in 0..config.workers {
         let host = Arc::clone(&host);
-        let queue = Arc::clone(&queue);
+        let ports = Arc::clone(&ports);
+        let next_index = Arc::clone(&next_index);
+        let cancelled = Arc::clone(&cancelled);
         let sender = sender.clone();
 
-        let handle = thread::spawn(move || -> Result<(), String> {
-            loop {
-                let next_port = {
-                    let mut locked_queue = queue
-                        .lock()
-                        .map_err(|_| "No se pudo bloquear la cola".to_string())?;
-                    locked_queue.pop_front()
-                };
-
-                match next_port {
-                    Some(port) => {
-                        let result = scan_port(&host, port, timeout);
-                        sender
-                            .send(result)
-                            .map_err(|_| "Se cerró el canal de resultados".to_string())?;
-                    }
-                    None => break,
-                }
+        handles.push(thread::spawn(move || loop {
+            if cancelled.load(Ordering::Acquire) {
+                break;
             }
-            Ok(())
-        });
-
-        handles.push(handle);
+            let index = next_index.fetch_add(1, Ordering::Relaxed);
+            let Some(&port) = ports.get(index) else {
+                break;
+            };
+            let result = scan_port(host.as_str(), resolved_address, port, timeout);
+            if cancelled.load(Ordering::Acquire) {
+                break;
+            }
+            if sender.send(result).is_err() {
+                cancelled.store(true, Ordering::Release);
+                break;
+            }
+        }));
     }
     drop(sender);
 
     let mut emitted_results = 0;
-    for result in receiver {
+    let mut stream_error: Option<String> = None;
+    while emitted_results < expected_results {
+        let result = match receiver.recv() {
+            Ok(result) => result,
+            Err(_) => break,
+        };
         let port = result.port;
         let status = result.state;
-        write_jsonl_record(writer, &result)?;
+        if let Err(error) = write_jsonl_record(writer, &result) {
+            cancelled.store(true, Ordering::Release);
+            stream_error = Some(error);
+            break;
+        }
         emitted_results += 1;
-        events.emit("port_completed", status, Some(port), emitted_results)?;
+        if let Err(error) = events.emit("port_completed", status, Some(port), emitted_results) {
+            cancelled.store(true, Ordering::Release);
+            stream_error = Some(error);
+            break;
+        }
     }
+    drop(receiver);
 
+    let mut worker_panicked = false;
     for handle in handles {
-        match handle.join() {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => return Err(error),
-            Err(_) => return Err("Error interno en un hilo de escaneo Rust".to_string()),
+        if handle.join().is_err() {
+            worker_panicked = true;
         }
     }
 
+    if let Some(error) = stream_error {
+        return Err(error);
+    }
+    if worker_panicked {
+        return Err("Error interno en un hilo de escaneo Rust".to_string());
+    }
     if emitted_results != expected_results {
         return Err(format!(
             "Streaming incompleto: {emitted_results} de {expected_results} resultados"
@@ -520,9 +606,11 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_invocation, parse_scan_request, resolve_socket_addr, write_jsonl_record, Invocation,
-        NativeEvent, ScanEvidence, ScanResult, CONTRACT_VERSION, HELP_TEXT,
+        parse_invocation, parse_scan_request, resolve_socket_addr, run_scan, truncate_diagnostic,
+        write_jsonl_record, AppConfig, Invocation, NativeEvent, ScanEvidence, ScanResult,
+        CONTRACT_VERSION, HELP_TEXT, MAX_DIAGNOSTIC_BYTES, MAX_REQUEST_BYTES,
     };
+    use std::io::{self, Write};
 
     #[test]
     fn parses_versioned_stdin_request() {
@@ -664,5 +752,52 @@ mod tests {
         assert_eq!(value["record_type"], "native_event");
         assert_eq!(value["engine"], "rust");
         assert_eq!(value["port"], 80);
+    }
+
+    #[test]
+    fn caps_workers_and_preserves_contract_v1() {
+        let config = parse_scan_request(
+            r#"{"contract_version":1,"record_type":"scan_request","target":"127.0.0.1","ports":[80,81,82],"timeout_ms":250,"workers":9999}"#,
+        )
+        .expect("solicitud válida");
+        assert_eq!(config.workers, 3);
+    }
+
+    #[test]
+    fn diagnostic_truncation_is_utf8_safe_and_bounded() {
+        let value = "á".repeat(MAX_DIAGNOSTIC_BYTES);
+        let truncated = truncate_diagnostic(&value);
+        assert!(truncated.ends_with('…'));
+        assert!(truncated.len() <= MAX_DIAGNOSTIC_BYTES);
+    }
+
+    #[test]
+    fn request_limit_is_materially_bounded() {
+        assert_eq!(MAX_REQUEST_BYTES, 8 * 1024 * 1024);
+    }
+
+    struct BrokenPipeWriter;
+
+    impl Write for BrokenPipeWriter {
+        fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "consumer closed"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn downstream_close_cancels_bounded_workers_without_hanging() {
+        let config = AppConfig {
+            host: "127.0.0.1".to_string(),
+            ports: (1..=128).collect(),
+            timeout_ms: 10,
+            workers: 16,
+        };
+        let mut writer = BrokenPipeWriter;
+        let error = run_scan(config, &mut writer).expect_err("stdout cerrado");
+        assert!(error.contains("JSONL"));
     }
 }

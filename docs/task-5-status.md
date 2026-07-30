@@ -9,9 +9,11 @@ TASK_5_BRANCH=feat/task-5-enterprise-engine-production-hardening
 SUBTASK_5_1=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
 SUBTASK_5_1_COMMIT=045dabda6eea840e3cbe065407e7132d88ba9963
 SUBTASK_5_1_CI_RUN=30506742043
-SUBTASK_5_2=IN_MATERIAL_IMPLEMENTATION
-SUBTASK_5_2_BASE=045dabda6eea840e3cbe065407e7132d88ba9963
-SUBTASK_5_3=BLOCKED_NOT_STARTED
+SUBTASK_5_2=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
+SUBTASK_5_2_COMMIT=8ce44caebf90519867d0da7a53a0ec71372cd741
+SUBTASK_5_2_CI_RUN=30548790956
+SUBTASK_5_3=IN_MATERIAL_IMPLEMENTATION
+SUBTASK_5_3_BASE=8ce44caebf90519867d0da7a53a0ec71372cd741
 SUBTASK_5_4=BLOCKED_NOT_STARTED
 SUBTASK_5_5=BLOCKED_NOT_STARTED
 SUBTASK_5_6=BLOCKED_NOT_STARTED
@@ -62,23 +64,32 @@ implementación funcional de 5.2, 5.3 o 5.4 exige:
 5. autorización formal de la siguiente subtask.
 
 
-## SUBTASK 5.2 — Implementación material autorizada
+## SUBTASK 5.2 — Cerrada y congelada
+
+Session Store v2, migración v1→v2, recuperación transaccional y Secure Artifact
+Writer quedaron cerrados y congelados sobre
+`8ce44caebf90519867d0da7a53a0ec71372cd741`, con CI remoto `30548790956` en
+estado `success`. Las incidencias `AC-001`, `FV-001` y `CV-001` están cerradas.
+
+## SUBTASK 5.3 — Implementación material autorizada
 
 Alcance activo:
 
-- Session Store v2 transaccional sobre SQLite WAL;
-- persistencia incremental por `N=128` o `T=250 ms`;
-- rango TCP completo, p95 de commits, cancelación y recuperación `SIGKILL`;
-- migración read-only e idempotente desde stores v1;
-- recuperación, auditoría y exportación portable;
-- Secure Artifact Writer para reportes, eventos y bundles;
-- pruebas y aceptación sin red externa.
+- Rust TCP Engine v2 sobre técnica `tcp_connect`;
+- resolución única del objetivo antes del ciclo de puertos;
+- concurrencia acotada con índice atómico;
+- backpressure mediante canal de resultados bounded;
+- streaming JSONL incremental;
+- cancelación determinista por cierre del consumidor o terminación del proceso;
+- límites de stdin, workers, canal, diagnósticos, RSS, FDs e hilos;
+- benchmark comparativo contra la baseline congelada de 5.1.
 
 Restricciones activas:
 
-- SUBTASK 5.1 permanece cerrada y congelada;
-- `rust-core/` y `go-banner/` no pueden modificarse;
+- SUBTASK 5.1 y SUBTASK 5.2 permanecen cerradas y congeladas;
+- `go-banner/` no puede modificarse materialmente;
 - los contratos públicos v1 permanecen estables;
-- SUBTASK 5.3 y posteriores continúan bloqueadas;
-- el cierre de 5.2 requiere evidencia, commit firmado, CI verde y aprobación
+- no se añaden técnicas raw, SYN scan ni objetivos externos;
+- SUBTASK 5.4 y posteriores continúan bloqueadas;
+- el cierre de 5.3 exige evidencia, commit firmado, CI verde y aprobación
   formal del Arquitecto del Proyecto.
