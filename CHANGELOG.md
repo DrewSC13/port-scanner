@@ -69,6 +69,30 @@ Python distribution versions use the equivalent PEP 440 spelling.
   banner collection; no raw, discovery or vulnerability capabilities were
   introduced.
 
+## [3.0.0-rc.2] - Unreleased
+
+### Added
+
+- Enterprise acceptance runner chaining the signed and hashed evidence of
+  SUBTASKS 5.1–5.5.
+- RC2 release inventory and static policy verification for version, contracts,
+  artifacts and publication barriers.
+
+### Changed
+
+- The candidate version advances to `3.0.0-rc.2` (`3.0.0rc2` in Python) while
+  preserving Linux x86_64, Ubuntu 22.04/24.04 and Python 3.10–3.13 support.
+- Release manifests, CycloneDX metadata and CI artifact identity derive from the
+  canonical application-version source and the TASK 5.6 contract.
+
+### Security
+
+- Enterprise acceptance remains loopback-only and preserves JSONL v1,
+  `service_evidence` v2, immutable action pins, hashed dependencies, SLSA and
+  Sigstore verification.
+- RC2 publication, `main` integration and release tagging remain blocked behind
+  a separate formal gate.
+
 ## [3.0.0-rc.1] - Unreleased
 
 ### Added

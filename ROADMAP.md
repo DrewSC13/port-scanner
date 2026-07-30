@@ -248,23 +248,31 @@ ofensivo ni escaneo externo o no autorizado.
 ## TASK 5 — Enterprise Engine and Production Hardening
 
 ```text
-TASK_5=OPEN_AUTHORIZED
+TASK_5=IN_IMPLEMENTATION
 CONTRACT=CEPH-CICADAPORT-TASK-5-001
 CONTRACT_VERSION=1.0-CANDIDATE
 BASE=main@bfaa7e6c2989dc923b418862ce9243e68e3f569c
 BRANCH=feat/task-5-enterprise-engine-production-hardening
-SUBTASK_5_1=IN_MATERIAL_IMPLEMENTATION
-SUBTASK_5_2=BLOCKED_NOT_STARTED
-SUBTASK_5_3=BLOCKED_NOT_STARTED
-SUBTASK_5_4=BLOCKED_NOT_STARTED
-SUBTASK_5_5=BLOCKED_NOT_STARTED
-SUBTASK_5_6=BLOCKED_NOT_STARTED
+SUBTASK_5_1=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
+SUBTASK_5_2=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
+SUBTASK_5_3=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
+SUBTASK_5_4=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
+SUBTASK_5_5=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
+SUBTASK_5_6=OPEN_AUTHORIZED_IN_MATERIAL_IMPLEMENTATION
+SUBTASK_5_6_CONTRACT=EIVRC-CICADAPORT-5.6-001
+PROPOSED_RELEASE=3.0.0-rc.2
+PHASE_F=BLOCKED_NOT_AUTHORIZED
 ```
 
-SUBTASK 5.1 está limitada a arquitectura, contratos candidatos, modelo de
-amenazas, instrumentación y baseline loopback. No autoriza cambios funcionales
-en Session Store, Rust, Go, CLI, TUI, reportes ni contratos v1. 5.2–5.6
-permanecen bloqueadas hasta el cierre firmado de 5.1.
+SUBTASKS 5.1–5.5 consolidaron arquitectura y baselines empresariales, Session
+Store v2 y artefactos seguros, Rust TCP Engine v2, Go Service Evidence Engine
+v2 y endurecimiento de supply chain. SUBTASK 5.6 valida integralmente esa
+convergencia y prepara RC2 sin publicación.
+
+La aceptación se limita a loopback y debe demostrar contratos públicos v1,
+`service_evidence` v2, instalación aislada, reproducibilidad, presupuestos de
+recursos, SBOM, provenance, firmas y CI completo. `main`, etiquetas y
+publicación permanecen bloqueados hasta la fase F.
 
 ## Gobierno vigente
 

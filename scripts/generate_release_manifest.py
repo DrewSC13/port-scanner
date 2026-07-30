@@ -12,6 +12,10 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.version import SEMVER_VERSION
 
 
 def run(*command: str, cwd: Path = ROOT) -> str:
@@ -45,8 +49,8 @@ def main() -> None:
     )
     payload = {
         "schema": "cicadaport-release-manifest-v2",
-        "contract": "OSCR-CICADAPORT-5.5-001",
-        "release_candidate": "3.0.0-rc.1",
+        "contract": "EIVRC-CICADAPORT-5.6-001",
+        "release_candidate": SEMVER_VERSION,
         "build_identity": {
             "git_commit": commit,
             "git_head_tree": head_tree,

@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10--3.13-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
-![Platform](https://img.shields.io/badge/Platform-Linux%20x86_64-lightgrey.svg)\n![Release](https://img.shields.io/badge/Release-3.0.0--rc.1-orange.svg)
+![Platform](https://img.shields.io/badge/Platform-Linux%20x86_64-lightgrey.svg)\n![Release](https://img.shields.io/badge/Release-3.0.0--rc.2-orange.svg)
 
 Escáner de puertos con arquitectura especializada para auditorías de seguridad
 autorizadas: Python orquesta la sesión, Rust ejecuta el escaneo TCP y Go captura
@@ -10,11 +10,12 @@ los banners solicitados.
 
 ## Release candidate y soporte verificable
 
-CicadaPort `3.0.0-rc.1` (`3.0.0rc1` en metadatos Python) es una
-prerelease, no una declaración de producción. RC1 está soportada únicamente en
-Linux x86_64, Ubuntu 22.04/24.04 y Python 3.10-3.13. Windows, macOS, ARM64 y
-Python 3.14 permanecen no soportados. Rust 1.97.1 y Go 1.26.5 son las
-toolchains fijadas; los contratos JSONL permanecen en versión 1.
+CicadaPort `3.0.0-rc.2` (`3.0.0rc2` en metadatos Python) es la nueva
+Release Candidate empresarial en validación de rama. No es una versión estable
+ni está publicada todavía. La matriz verificada continúa limitada a Linux
+x86_64, Ubuntu 22.04/24.04 y Python 3.10-3.13; Windows, macOS, ARM64 y
+Python 3.14 permanecen no soportados. Rust 1.97.1 y Go 1.26.5 siguen fijados
+y los contratos JSONL públicos permanecen en versión 1.
 
 El wheel Linux contiene los motores obligatorios Rust y Go. La construcción y
 prueba aislada de wheel/sdist se ejecuta con:
@@ -30,19 +31,17 @@ python -m pip install -r requirements-release.txt
 TASK 4 — sesiones reproducibles, reanudables y observables — está consolidada,
 cerrada y congelada sobre la implementación funcional
 `77ad51f0751b29b510f574e750c1a3fa65db4a60`. Este cierre no convierte por sí
-solo a `3.0.0-rc.1` en una versión estable ni autoriza capacidades fuera del
+solo a `3.0.0-rc.2` en una versión estable ni autoriza capacidades fuera del
 alcance TCP-connect y banner grabbing documentado.
 
 ## Estado de TASK 5
 
 TASK 5 — Enterprise Engine and Production Hardening — está en implementación
-sobre `feat/task-5-enterprise-engine-production-hardening`. SUBTASK 5.1,
-SUBTASK 5.2 y SUBTASK 5.3 están cerradas y congeladas. SUBTASK 5.4 desarrolla
-Go Service Evidence Engine v2 sin alterar los contratos públicos v1: stdout
-conserva `banner_result` v1 y la evidencia estructurada v2 se transmite por un
-canal interno separado. La implementación añade streaming incremental,
-backpressure, cancelación, lectura limitada, TLS veraz, sanitización segura y
-probes versionados `passive`/`safe`. Consulta
+sobre `feat/task-5-enterprise-engine-production-hardening`. SUBTASKS 5.1–5.5
+están cerradas, consolidadas y congeladas. SUBTASK 5.6 ejecuta la validación
+empresarial integral y prepara `3.0.0-rc.2` sin alterar los contratos públicos
+v1 ni `service_evidence` v2. La integración a `main`, el etiquetado y la
+publicación continúan bloqueados por una puerta formal separada. Consulta
 [docs/task-5-status.md](docs/task-5-status.md).
 
 ## Características Principales
@@ -450,5 +449,7 @@ incluye además la versión del contrato.
 TASK 5.5 fija cada GitHub Action por SHA completa, instala las herramientas de
 release desde un lock Python con hashes, genera SBOM CycloneDX 1.6 y manifiestos
 de identidad, compara builds byte a byte y configura attestations Sigstore/SLSA.
-Estos controles endurecen la RC existente; no publican una nueva versión ni
-amplían las capacidades de red.
+SUBTASK 5.6 reutiliza estos controles para construir y validar RC2 de forma
+reproducible. Los artefactos de CI siguen siendo candidatos privados: no se
+crea etiqueta, no se publica una GitHub Release y no se amplían capacidades de
+red.

@@ -14,6 +14,10 @@ import tomllib
 import uuid
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.version import SEMVER_VERSION, __version__
 LOCK = ROOT / "requirements-release.txt"
 CARGO_LOCK = ROOT / "rust-core" / "Cargo.lock"
 GO_MOD = ROOT / "go-banner" / "go.mod"
@@ -120,13 +124,13 @@ def main() -> None:
             "component": {
                 "type": "application",
                 "name": "CicadaPort",
-                "version": "3.0.0-rc.1",
-                "bom-ref": f"pkg:pypi/portscanner-pro@3.0.0rc1?commit={commit}",
-                "purl": "pkg:pypi/portscanner-pro@3.0.0rc1",
+                "version": SEMVER_VERSION,
+                "bom-ref": f"pkg:pypi/portscanner-pro@{__version__}?commit={commit}",
+                "purl": f"pkg:pypi/portscanner-pro@{__version__}",
                 "properties": [
                     {"name": "cicadaport:git-commit", "value": commit},
                     {"name": "cicadaport:git-candidate-tree", "value": candidate_tree},
-                    {"name": "cicadaport:contract", "value": "OSCR-CICADAPORT-5.5-001"},
+                    {"name": "cicadaport:contract", "value": "EIVRC-CICADAPORT-5.6-001"},
                 ],
             },
             "tools": {"components": [{

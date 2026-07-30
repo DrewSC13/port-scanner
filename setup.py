@@ -25,7 +25,7 @@ def _require_release_platform() -> None:
     machine = platform.machine().lower()
     if system != "Linux" or machine not in SUPPORTED_MACHINES:
         raise RuntimeError(
-            "Los artefactos 3.0.0-rc.1 solo se construyen para Linux "
+            "Los artefactos 3.0.0-rc.2 solo se construyen para Linux "
             f"x86_64; plataforma detectada: {system} {machine}."
         )
 

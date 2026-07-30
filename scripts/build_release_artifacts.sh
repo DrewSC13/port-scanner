@@ -45,8 +45,8 @@ normalize_sdist() (
   normalized=""
 )
 
-[[ "$(uname -s)" == "Linux" ]] || { echo "RC1 is built only on Linux." >&2; exit 1; }
-case "$(uname -m)" in x86_64|amd64) ;; *) echo "RC1 is built only on x86_64." >&2; exit 1 ;; esac
+[[ "$(uname -s)" == "Linux" ]] || { echo "RC2 is built only on Linux." >&2; exit 1; }
+case "$(uname -m)" in x86_64|amd64) ;; *) echo "RC2 is built only on x86_64." >&2; exit 1 ;; esac
 
 test -z "$(git diff --name-only)" || {
   echo "Release build refuses unstaged tracked changes." >&2
@@ -106,7 +106,7 @@ for line in Path("ARTIFACTS.sha256").read_text(encoding="utf-8").splitlines():
 Path("ATTESTATION-PLAN.json").write_text(
     json.dumps({
         "schema": "cicadaport-attestation-plan-v1",
-        "contract": "OSCR-CICADAPORT-5.5-001",
+        "contract": "EIVRC-CICADAPORT-5.6-001",
         "predicate": "https://slsa.dev/provenance/v1",
         "sbom": "cicadaport.cdx.json",
         "subjects": subjects,
