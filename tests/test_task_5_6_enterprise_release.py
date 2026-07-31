@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 import re
 
@@ -100,3 +101,89 @@ def test_release_inventory_declares_no_publication() -> None:
     assert '"tag_created": False' in inventory
     assert '"release_published": False' in inventory
     assert '"packages_published": False' in inventory
+
+
+def test_evidence_chain_loss_recovery_attestation_is_versioned_and_hashed() -> None:
+    attestation_path = ROOT / "docs/audits/task-5-6-evidence-chain-loss-recovery.md"
+    runner = source("scripts/run_task_5_6_acceptance.sh")
+    attestation = attestation_path.read_text(encoding="utf-8")
+    digest = hashlib.sha256(attestation_path.read_bytes()).hexdigest()
+
+    assert digest == "f7a98425017d79b861fa67f15f8594ae04223d9e0efd9fc920eda3506888cfaa"
+    assert f'LOSS_ATTESTATION_SHA256="{digest}"' in runner
+    for marker in (
+        "LOSS_ATTESTATION_VERSION=1",
+        "LOSS_ATTESTATION_STATUS=ACTIVE_RECOVERY_CONTRACT",
+        "SC_ACCEPTANCE_PHASE_F_006=DIAGNOSED_TOTAL_LOCAL_EVIDENCE_LOSS",
+        "HISTORICAL_EVIDENCE_RECREATED=NO",
+        "HISTORICAL_EVIDENCE_PARTIAL_PRESENCE=0",
+        "HISTORICAL_RESULT_6_32_7_0=ATTESTED",
+        "SIGNED_PREDECESSOR_COMMITS=5",
+    ):
+        assert marker in attestation
+
+
+def test_evidence_chain_preserves_legacy_thresholds_and_fails_partial_closed() -> None:
+    runner = source("scripts/run_task_5_6_acceptance.sh")
+    for marker in (
+        'test "$EVIDENCE_DIR_COUNT" -ge 6',
+        'test "$EVIDENCE_FILES" -ge 32',
+        'test "$SHA256SUMS_TOTAL" -ge 7',
+        'test "$SHA256SUMS_PASS" -ge 7',
+        'test "$SHA256SUMS_FAIL" -eq 0',
+        "EVIDENCE_CHAIN_MODE=LOCAL_HASHED_ROOTS",
+        "EVIDENCE_CHAIN_PARTIAL_PRESENCE=FAIL_CLOSED",
+        "EVIDENCE_CHAIN_MODE=SIGNED_PREDECESSOR_CHAIN_WITH_LOSS_ATTESTATION",
+        "SUBTASKS_5_1_TO_5_5_EVIDENCE_CHAIN=PASS_RECOVERY_MODE",
+    ):
+        assert marker in runner
+
+    zero_condition = (
+        '[[ "$EVIDENCE_DIR_COUNT" -eq 0 &&\n'
+        '      "$EVIDENCE_FILES" -eq 0 &&\n'
+        '      "$SHA256SUMS_TOTAL" -eq 0 &&\n'
+        '      "$SHA256SUMS_PASS" -eq 0 &&\n'
+        '      "$SHA256SUMS_FAIL" -eq 0 ]]'
+    )
+    assert zero_condition in runner
+
+
+def test_loss_recovery_binds_exact_signed_predecessor_chain_and_surfaces() -> None:
+    runner = source("scripts/run_task_5_6_acceptance.sh")
+    for commit in (
+        "045dabda6eea840e3cbe065407e7132d88ba9963",
+        "8ce44caebf90519867d0da7a53a0ec71372cd741",
+        "7bac7fff3c2f0e14db74505923e0e5f64edc7eb7",
+        "845ba78330d969685b15895d05040abfaa8cfd86",
+        "af6ccaeb45394a837f7277b6a6e8508683eda032",
+    ):
+        assert commit in runner
+
+    for marker in (
+        'git verify-commit "$predecessor"',
+        'git merge-base --is-ancestor',
+        "PREDECESSOR_CONTRACT_SURFACES=PASS",
+        "scripts/run_task_5_1_baseline.sh",
+        "scripts/run_task_5_2_acceptance.sh",
+        "scripts/run_task_5_3_rust_acceptance.sh",
+        "scripts/run_task_5_4_go_acceptance.sh",
+        "scripts/run_task_5_5_acceptance.sh",
+    ):
+        assert marker in runner
+
+
+def test_commit_a_acceptance_mode_stops_before_known_release_lock_defect() -> None:
+    runner = source("scripts/run_task_5_6_acceptance.sh")
+    through_index = runner.index(
+        "ENTERPRISE_ACCEPTANCE_THROUGH_EVIDENCE_CHAIN=PASS"
+    )
+    lock_index = runner.index("./scripts/compile_release_lock.sh --check")
+    finalization_guard = (
+        'if [[ "$RETURN_CODE" -eq 0 && "$ACCEPTANCE_MODE" == "full" ]]; then'
+    )
+
+    assert through_index < lock_index
+    assert finalization_guard in runner
+    assert 'ACCEPTANCE_MODE="${ACCEPTANCE_MODE:-full}"' in runner
+    assert "full|through-evidence-chain" in runner
+    assert 'LOG_ROOT="${LOG_ROOT:?}"' in runner
