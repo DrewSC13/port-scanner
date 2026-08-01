@@ -8,7 +8,7 @@ rollback operation on the host.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
+from .python_compat import StrEnum
 import hashlib
 import json
 from pathlib import PurePosixPath

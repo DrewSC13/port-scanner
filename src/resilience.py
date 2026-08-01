@@ -1,7 +1,7 @@
 """Pure resilience states, recovery decisions, counters, and growth checks."""
 from __future__ import annotations
 from dataclasses import dataclass
-from enum import StrEnum
+from .python_compat import StrEnum
 import hashlib, json
 from threading import Lock
 from typing import Iterable

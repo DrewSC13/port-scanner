@@ -1,7 +1,7 @@
 """Deterministic in-process failure schedules with no external effects."""
 from __future__ import annotations
 from dataclasses import dataclass
-from enum import StrEnum
+from .python_compat import StrEnum
 import hashlib, json, re
 from typing import Iterable
 

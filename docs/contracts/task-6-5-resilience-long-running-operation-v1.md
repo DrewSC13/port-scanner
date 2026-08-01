@@ -15,3 +15,9 @@ Requirements: deterministic logical cycles and injectable monotonic ticks; stric
 resource budgets; stability snapshots; fail-closed recovery; in-process failure
 injection; terminal thread-safe cancellation; bounded diagnostics; reproducible
 result identifiers; and zero external effects.
+
+Python runtime compatibility: the supported matrix includes Python 3.10.
+String-valued enums must import the shared `src.python_compat.StrEnum`
+abstraction. Direct imports of `enum.StrEnum` are prohibited because that
+standard-library type is unavailable before Python 3.11. The fallback is
+in-process, dependency-free, and does not mutate the `enum` module.
