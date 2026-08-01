@@ -19,6 +19,13 @@ fi
 [[ "$#" -eq 0 ]] || { echo "Usage: $0 [--check]" >&2; exit 2; }
 [[ -f "$INPUT" ]] || { echo "Missing lock input: $INPUT" >&2; exit 1; }
 
+if [[ "$MODE" == "check" ]]; then
+  [[ -f "$OUTPUT" ]] || {
+    echo "Missing release lock: $OUTPUT" >&2
+    exit 1
+  }
+fi
+
 python_version="$($PYTHON -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')"
 [[ "$python_version" == "3.13" ]] || {
   echo "Release lock must be compiled with Python 3.13; found $python_version." >&2
@@ -31,6 +38,10 @@ venv="$workspace/venv"
 wheelhouse="$workspace/wheelhouse"
 compiled="$workspace/requirements-release.txt"
 mkdir -p "$wheelhouse"
+
+if [[ "$MODE" == "check" ]]; then
+  install -m 0644 "$OUTPUT" "$compiled"
+fi
 
 "$PYTHON" -m venv "$venv"
 "$venv/bin/python" -m pip --isolated download \

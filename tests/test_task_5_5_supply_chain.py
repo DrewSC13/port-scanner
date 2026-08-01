@@ -127,3 +127,31 @@ def test_acceptance_binds_contract_base_and_current_signed_head() -> None:
     assert "ACCEPTANCE_PRECONDITIONS=BEGIN" in runner
     assert "ACCEPTANCE_PRECONDITIONS=PASS" in runner
     assert '"head_commit": head_commit' in runner
+
+
+def test_release_lock_check_reuses_committed_pins_without_upgrading() -> None:
+    source = (
+        ROOT / "scripts" / "compile_release_lock.sh"
+    ).read_text(encoding="utf-8")
+
+    check_guard = 'if [[ "$MODE" == "check" ]]; then'
+    missing_message = 'echo "Missing release lock: $OUTPUT" >&2'
+    seed_command = 'install -m 0644 "$OUTPUT" "$compiled"'
+    compile_command = '"$venv/bin/python" -m piptools compile'
+    write_command = 'install -m 0644 "$compiled" "$OUTPUT.tmp"'
+
+    missing_index = source.index(missing_message)
+    first_check_index = source.rfind(check_guard, 0, missing_index)
+    seed_index = source.index(seed_command)
+    second_check_index = source.rfind(check_guard, 0, seed_index)
+    compile_index = source.index(compile_command)
+    final_check_index = source.index(check_guard, compile_index)
+    write_index = source.index(write_command)
+
+    assert first_check_index < missing_index
+    assert missing_index < second_check_index < seed_index
+    assert seed_index < compile_index < final_check_index < write_index
+    assert source.count(seed_command) == 1
+    assert "--upgrade" not in source
+    assert '[[ -f "$OUTPUT" ]] || {' in source
+    assert "Release lock is stale." in source
