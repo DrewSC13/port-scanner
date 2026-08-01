@@ -104,3 +104,21 @@ def test_benchmark_source_has_no_network_primitives() -> None:
         "CAP_NET_RAW",
     )
     assert all(token not in source for token in forbidden)
+
+
+def test_runner_is_post_commit_reproducible() -> None:
+    runner_path = REPO / "scripts" / "run_task_6_1_operational_baseline.sh"
+    source = runner_path.read_text(encoding="utf-8")
+    assert 'AUTHORIZED_BASE="30ac1780239abe9a63d6a6dd47f101398b7bb33f"' in source
+    assert 'git diff --name-only "$AUTHORIZED_BASE...HEAD"' in source
+    assert 'git merge-base --is-ancestor "$AUTHORIZED_BASE" HEAD' in source
+    assert "sed -n 's/^?? //p'" not in source
+    assert 'EXPECTED_HEAD=' not in source
+    assert 'EXPECTED_TREE=' not in source
+    assert 'FINAL_STATUS=PASS_OPERATIONAL_BASELINE_POST_COMMIT' in source
+    assert 'FINAL_STATUS=PASS_FIRST_BLOCK_PENDING_SIGNED_COMMIT' not in source
+
+    create_log = source.index(': >"$LOG_PATH"')
+    chmod_log = source.index('chmod 600 "$LOG_PATH"')
+    redirect_log = source.index('exec > >(tee "$LOG_PATH") 2>&1')
+    assert create_log < chmod_log < redirect_log

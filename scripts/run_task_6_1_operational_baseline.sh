@@ -7,8 +7,7 @@ EVIDENCE_ROOT="${EVIDENCE_ROOT:-/home/cicada/Development/GitHub/port-scanner-loc
 PROFILE="${1:-smoke}"
 
 EXPECTED_BRANCH="feat/task-6-1-operational-architecture-baseline"
-EXPECTED_HEAD="30ac1780239abe9a63d6a6dd47f101398b7bb33f"
-EXPECTED_TREE="c6101ec7a77373df4f9b78857f5d514c5d2bea0a"
+AUTHORIZED_BASE="30ac1780239abe9a63d6a6dd47f101398b7bb33f"
 
 case "$PROFILE" in
   smoke|quick|full) ;;
@@ -36,28 +35,31 @@ EOF
 
 mkdir -p "$RUN_DIR"
 chmod 700 "$RUN_DIR"
-exec > >(tee "$LOG_PATH") 2>&1
+: >"$LOG_PATH"
 chmod 600 "$LOG_PATH"
+exec > >(tee "$LOG_PATH") 2>&1
 
 cd "$REPO"
 
 printf '%s\n' '=== 1. PRECONDICIONES ==='
 
 test "$(git branch --show-current)" = "$EXPECTED_BRANCH"
-test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-test "$(git rev-parse 'HEAD^{tree}')" = "$EXPECTED_TREE"
+git merge-base --is-ancestor "$AUTHORIZED_BASE" HEAD
 git diff --quiet
 git diff --cached --quiet
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+CURRENT_HEAD="$(git rev-parse HEAD)"
+CURRENT_TREE="$(git rev-parse 'HEAD^{tree}')"
 
 ACTUAL_FILES="$(
-  git status --porcelain=v1 --untracked-files=all |
-  sed -n 's/^?? //p' |
+  git diff --name-only "$AUTHORIZED_BASE...HEAD" |
   sort
 )"
 test "$ACTUAL_FILES" = "$EXPECTED_FILES"
 
 STATUS_BEFORE="$(
-  git status --porcelain=v1 --untracked-files=all
+  git status --porcelain=v1 --branch --untracked-files=all
 )"
 
 test -z "$(
@@ -67,8 +69,10 @@ test -z "$(
 
 printf '%s\n' \
   "BRANCH=$EXPECTED_BRANCH" \
-  "HEAD=$EXPECTED_HEAD" \
-  "TREE=$EXPECTED_TREE" \
+  "AUTHORIZED_BASE=$AUTHORIZED_BASE" \
+  "HEAD=$CURRENT_HEAD" \
+  "TREE=$CURRENT_TREE" \
+  'AUTHORIZED_BASE_IS_ANCESTOR=PASS' \
   'ALLOWED_CHANGESET=PASS' \
   'EXTERNAL_NETWORK=DISABLED' \
   'PRODUCTION_CODE_CHANGES=0' \
@@ -125,7 +129,7 @@ python3 -I -S - \
   "$OUTPUT_DIR/task-6-1-operational-baseline.json" \
   "$PROFILE" \
   "$EXPECTED_BRANCH" \
-  "$EXPECTED_HEAD" <<'PY'
+  "$CURRENT_HEAD" <<'PY'
 from __future__ import annotations
 
 import json
@@ -160,13 +164,21 @@ printf '%s\n' \
 printf '\n%s\n' '=== 6. INTEGRIDAD POST-EJECUCIÓN ==='
 
 test "$(git branch --show-current)" = "$EXPECTED_BRANCH"
-test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-test "$(git rev-parse 'HEAD^{tree}')" = "$EXPECTED_TREE"
+git merge-base --is-ancestor "$AUTHORIZED_BASE" HEAD
+test "$(git rev-parse HEAD)" = "$CURRENT_HEAD"
+test "$(git rev-parse 'HEAD^{tree}')" = "$CURRENT_TREE"
 git diff --quiet
 git diff --cached --quiet
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+ACTUAL_FILES_AFTER="$(
+  git diff --name-only "$AUTHORIZED_BASE...HEAD" |
+  sort
+)"
+test "$ACTUAL_FILES_AFTER" = "$EXPECTED_FILES"
 
 STATUS_AFTER="$(
-  git status --porcelain=v1 --untracked-files=all
+  git status --porcelain=v1 --branch --untracked-files=all
 )"
 test "$STATUS_AFTER" = "$STATUS_BEFORE"
 git diff --check
@@ -175,6 +187,8 @@ printf '%s\n' \
   'BRANCH_UNCHANGED=PASS' \
   'HEAD_UNCHANGED=PASS' \
   'TREE_UNCHANGED=PASS' \
+  'AUTHORIZED_BASE_IS_ANCESTOR_AFTER=PASS' \
+  'ALLOWED_CHANGESET_AFTER=PASS' \
   'REPOSITORY_INTEGRITY=PASS'
 
 printf '\n%s\n' '=== 7. DICTAMEN ==='
@@ -191,4 +205,4 @@ printf '%s\n' \
   'PUSH=NOT_PERFORMED' \
   "EVIDENCE_DIR=$OUTPUT_DIR" \
   "RUN_LOG=$LOG_PATH" \
-  'FINAL_STATUS=PASS_FIRST_BLOCK_PENDING_SIGNED_COMMIT'
+  'FINAL_STATUS=PASS_OPERATIONAL_BASELINE_POST_COMMIT'
