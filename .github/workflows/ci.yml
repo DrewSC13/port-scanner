@@ -15,6 +15,8 @@ concurrency:
 env:
   RUST_TOOLCHAIN: "1.97.1"
   GO_VERSION: "1.26.5"
+  PYTHON_RELEASE_VERSION: "3.13"
+  RELEASE_ARTIFACT_NAME: cicadaport-3.0.0-rc.2-linux-x86_64
 
 jobs:
   python-tests:
@@ -27,8 +29,8 @@ jobs:
         os: [ubuntu-22.04, ubuntu-24.04]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -42,32 +44,103 @@ jobs:
       - name: Run Python tests
         run: python -m pytest -v --cov=src --cov-report=term-missing
 
-  package-build:
-    name: Build release-candidate artifacts
+  supply-chain-policy:
+    name: Supply-chain policy, SAST and release lock
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: "3.13"
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_RELEASE_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-release.txt
+      - name: Verify immutable workflow and lock policy
+        run: python scripts/verify_supply_chain.py --strict
+      - name: Install hash-locked release and security tools
+        run: python -m pip install --require-hashes -r requirements-release.txt
+      - name: Verify release lock is stable
+        run: ./scripts/compile_release_lock.sh --check
+      - name: Python SAST
+        run: python -m bandit -r src main.py config.py -lll -iii
+      - name: TASK 5.5 static contract tests
+        run: python -I -S scripts/run_static_contract_tests.py tests/test_task_5_5_supply_chain.py
+      - name: TASK 5.6 enterprise release static contracts
+        run: python -I -S scripts/run_static_contract_tests.py tests/test_task_5_6_enterprise_release.py
+
+  secret-scan:
+    name: Secret scanning
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  package-build:
+    name: Build, attest and upload release-candidate artifacts
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    needs: [supply-chain-policy, secret-scan]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_RELEASE_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-release.txt
       - name: Install Rust 1.97.1
         run: |
           rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
           rustup default 1.97.1
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.5"
           cache: false
-      - name: Install release tools
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements-release.txt
-      - name: Build and verify wheel and sdist
+      - name: Install hash-locked release tools
+        run: python -m pip install --require-hashes -r requirements-release.txt
+      - name: Verify reproducible release build
+        run: ./scripts/verify_reproducible_release.sh
+      - name: Build release artifact set
         run: ./scripts/build_release_artifacts.sh
-      - uses: actions/upload-artifact@v4
+      - name: Create signed SLSA provenance
+        if: github.event_name != 'pull_request'
+        id: provenance
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
-          name: cicadaport-3.0.0-rc.1-linux-x86_64
+          subject-checksums: dist/ARTIFACTS.sha256
+      - name: Create signed CycloneDX SBOM attestation
+        if: github.event_name != 'pull_request'
+        id: sbom-attestation
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-checksums: dist/ARTIFACTS.sha256
+          sbom-path: dist/cicadaport.cdx.json
+      - name: Preserve Sigstore bundles and delivery hashes
+        if: github.event_name != 'pull_request'
+        env:
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          SBOM_BUNDLE: ${{ steps.sbom-attestation.outputs.bundle-path }}
+        run: |
+          install -m 0600 "$PROVENANCE_BUNDLE" dist/PROVENANCE.sigstore.json
+          install -m 0600 "$SBOM_BUNDLE" dist/SBOM-ATTESTATION.sigstore.json
+          (cd dist && sha256sum ./* > SIGNED-DELIVERY.sha256)
+          chmod 600 dist/SIGNED-DELIVERY.sha256
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ env.RELEASE_ARTIFACT_NAME }}
           path: dist/
           if-no-files-found: error
           retention-days: 30
@@ -83,31 +156,60 @@ jobs:
         os: [ubuntu-22.04, ubuntu-24.04]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install Rust 1.97.1
         run: |
           rustup toolchain install 1.97.1 --profile minimal
           rustup default 1.97.1
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.5"
           cache: false
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: cicadaport-3.0.0-rc.1-linux-x86_64
+          name: ${{ env.RELEASE_ARTIFACT_NAME }}
           path: dist
+      - name: Verify artifact hashes
+        run: |
+          (cd dist && sha256sum --check SHA256SUMS)
+          if [[ -f dist/SIGNED-DELIVERY.sha256 ]]; then
+            (cd dist && sha256sum --check SIGNED-DELIVERY.sha256)
+          fi
       - name: Install and execute wheel and sdist outside checkout
         run: ./scripts/test_release_artifacts.sh dist
+
+  attestation-verify:
+    name: Verify artifact signatures and provenance
+    if: github.event_name != 'pull_request'
+    needs: package-build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ env.RELEASE_ARTIFACT_NAME }}
+          path: dist
+      - name: Verify signed delivery and attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd dist && sha256sum --check SHA256SUMS)
+          (cd dist && sha256sum --check SIGNED-DELIVERY.sha256)
+          for artifact in dist/*.whl dist/*.tar.gz; do
+            gh attestation verify "$artifact" --repo "$GITHUB_REPOSITORY"
+          done
 
   rust:
     name: Rust 1.97.1
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust 1.97.1
         run: |
           rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
@@ -122,8 +224,8 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.5"
           cache: false
@@ -146,7 +248,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install ShellCheck
         run: |
           sudo apt-get update
@@ -159,22 +261,23 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: ${{ env.PYTHON_RELEASE_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-release.txt
       - name: Install Rust 1.97.1
         run: |
           rustup toolchain install 1.97.1 --profile minimal
           rustup default 1.97.1
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.5"
           cache: false
-      - name: Install audit tools
+      - name: Install hash-locked audit tools
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install "pip-audit>=2.9,<3"
+          python -m pip install --require-hashes -r requirements-release.txt
           RUSTUP_TOOLCHAIN="${RUST_TOOLCHAIN}" cargo install cargo-audit --version 0.22.2 --locked
           go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
@@ -184,17 +287,17 @@ jobs:
     name: Integration (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
-    needs: [python-tests, rust, go, shell]
+    needs: [python-tests, rust, go, shell, supply-chain-policy]
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.13"
-      - uses: actions/setup-go@v7
+          python-version: ${{ env.PYTHON_RELEASE_VERSION }}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.5"
           cache: false

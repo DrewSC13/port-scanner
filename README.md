@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10--3.13-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
-![Platform](https://img.shields.io/badge/Platform-Linux%20x86_64-lightgrey.svg)\n![Release](https://img.shields.io/badge/Release-3.0.0--rc.1-orange.svg)
+![Platform](https://img.shields.io/badge/Platform-Linux%20x86_64-lightgrey.svg)\n![Release](https://img.shields.io/badge/Release-3.0.0--rc.2-orange.svg)
 
 Escáner de puertos con arquitectura especializada para auditorías de seguridad
 autorizadas: Python orquesta la sesión, Rust ejecuta el escaneo TCP y Go captura
@@ -10,11 +10,12 @@ los banners solicitados.
 
 ## Release candidate y soporte verificable
 
-CicadaPort `3.0.0-rc.1` (`3.0.0rc1` en metadatos Python) es una
-prerelease, no una declaración de producción. RC1 está soportada únicamente en
-Linux x86_64, Ubuntu 22.04/24.04 y Python 3.10-3.13. Windows, macOS, ARM64 y
-Python 3.14 permanecen no soportados. Rust 1.97.1 y Go 1.26.5 son las
-toolchains fijadas; los contratos JSONL permanecen en versión 1.
+CicadaPort `3.0.0-rc.2` (`3.0.0rc2` en metadatos Python) es la nueva
+Release Candidate empresarial en validación de rama. No es una versión estable
+ni está publicada todavía. La matriz verificada continúa limitada a Linux
+x86_64, Ubuntu 22.04/24.04 y Python 3.10-3.13; Windows, macOS, ARM64 y
+Python 3.14 permanecen no soportados. Rust 1.97.1 y Go 1.26.5 siguen fijados
+y los contratos JSONL públicos permanecen en versión 1.
 
 El wheel Linux contiene los motores obligatorios Rust y Go. La construcción y
 prueba aislada de wheel/sdist se ejecuta con:
@@ -30,8 +31,18 @@ python -m pip install -r requirements-release.txt
 TASK 4 — sesiones reproducibles, reanudables y observables — está consolidada,
 cerrada y congelada sobre la implementación funcional
 `77ad51f0751b29b510f574e750c1a3fa65db4a60`. Este cierre no convierte por sí
-solo a `3.0.0-rc.1` en una versión estable ni autoriza capacidades fuera del
+solo a `3.0.0-rc.2` en una versión estable ni autoriza capacidades fuera del
 alcance TCP-connect y banner grabbing documentado.
+
+## Estado de TASK 5
+
+TASK 5 — Enterprise Engine and Production Hardening — está en implementación
+sobre `feat/task-5-enterprise-engine-production-hardening`. SUBTASKS 5.1–5.5
+están cerradas, consolidadas y congeladas. SUBTASK 5.6 ejecuta la validación
+empresarial integral y prepara `3.0.0-rc.2` sin alterar los contratos públicos
+v1 ni `service_evidence` v2. La integración a `main`, el etiquetado y la
+publicación continúan bloqueados por una puerta formal separada. Consulta
+[docs/task-5-status.md](docs/task-5-status.md).
 
 ## Características Principales
 
@@ -47,6 +58,23 @@ alcance TCP-connect y banner grabbing documentado.
 - **Cancelación Cooperativa**: Detención controlada de Rust y Go desde Python
 - **Validación Avanzada**: Verificación completa de entradas y configuraciones
 - **Estadísticas Detalladas**: Métricas completas del escaneo
+
+## Rust TCP Engine v2 — candidato TASK 5.3
+
+El motor Rust conserva `scan_request`/`port_result` v1 y `tcp_connect`, pero
+resuelve cada objetivo una sola vez, distribuye puertos mediante un índice
+atómico y aplica backpressure con un canal acotado. La aceptación oficial se
+ejecuta únicamente sobre loopback y compara rendimiento y recursos contra la
+baseline congelada de TASK 5.1.
+
+## Go Service Evidence Engine v2 — candidato TASK 5.4
+
+El motor Go mantiene `banner_request`/`banner_result` v1 y emite cada resultado
+al finalizar el endpoint, sin acumular ni ordenar previamente toda la salida.
+Una evidencia v2 opcional registra probe, fase, longitudes, truncamiento, hash,
+timeouts y TLS observado por un descriptor separado. Solo los probes
+`passive-banner@1` y `http-head@1` están permitidos por defecto; no se incorpora
+detección de vulnerabilidades.
 
 ## Estado técnico y hoja de ruta
 
@@ -367,6 +395,21 @@ Go negocia TLS en los puertos cifrados conocidos, envía un único `HEAD` solo a
 una lista cerrada de puertos HTTP/HTTPS y se limita a lectura pasiva en los
 demás servicios.
 
+## Persistencia transaccional y artefactos privados
+
+Las sesiones nuevas usan Session Store v2 sobre SQLite WAL. Los resultados se
+confirman por lotes normalizados y el checkpoint público v1 se reconstruye al
+leer, por lo que la compatibilidad externa permanece estable sin generar dos
+archivos completos por puerto. El perfil `balanced` confirma hasta 128
+resultados por transacción; el perfil `strict` confirma uno por transacción.
+Las sesiones v1 se migran de manera verificable, idempotente y de solo lectura:
+los archivos fuente permanecen intactos para auditoría y rollback.
+
+Los reportes, eventos y bundles usan directorios `0700`, archivos `0600`,
+creación exclusiva, temporales en el mismo filesystem, `fsync`, rechazo de
+symlinks y no sobrescritura por defecto. TXT, CSV y HTML neutralizan controles
+C0/C1, ESC/BEL y marcas bidi/invisibles antes de presentarlos a una persona.
+
 ## Resultados y reportes
 
 Cada escaneo muestra en la terminal todos los puertos abiertos, ordenados por
@@ -399,3 +442,14 @@ Los reportes añaden de forma compatible el estado, la razón, la dirección y l
 técnica. TXT, JSON, CSV y HTML identifican también los motores efectivos
 `rust` y `go` —o `no usado` cuando la fase de banners está desactivada—; JSON
 incluye además la versión del contrato.
+
+
+## Supply chain y reproducibilidad de release
+
+TASK 5.5 fija cada GitHub Action por SHA completa, instala las herramientas de
+release desde un lock Python con hashes, genera SBOM CycloneDX 1.6 y manifiestos
+de identidad, compara builds byte a byte y configura attestations Sigstore/SLSA.
+SUBTASK 5.6 reutiliza estos controles para construir y validar RC2 de forma
+reproducible. Los artefactos de CI siguen siendo candidatos privados: no se
+crea etiqueta, no se publica una GitHub Release y no se amplían capacidades de
+red.

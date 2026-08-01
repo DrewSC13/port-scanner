@@ -27,12 +27,12 @@ _ENGINE_CONFIG: Final = {
 
 
 def require_supported_platform() -> None:
-    """Rechaza plataformas fuera de la matriz aprobada para RC1."""
+    """Rechaza plataformas fuera de la matriz aprobada para RC2."""
     system = platform.system()
     machine = platform.machine().lower()
     if system != SUPPORTED_SYSTEM or machine not in SUPPORTED_MACHINES:
         raise RuntimeError(
-            "CicadaPort 3.0.0-rc.1 solo está soportado y verificado en "
+            "CicadaPort 3.0.0-rc.2 solo está soportado y verificado en "
             "Linux x86_64; plataforma detectada: "
             f"{system or 'desconocida'} {machine or 'desconocida'}."
         )

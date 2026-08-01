@@ -17,8 +17,9 @@ SYN scan, detección de vulnerabilidades, explotación ni escaneos externos.
 
 ## 3. Requisitos
 
-La RC1 verificada mantiene soporte en Linux x86_64, Ubuntu 22.04/24.04 y Python
-3.10–3.13, con Rust 1.97.1 y Go 1.26.5.
+La RC2 empresarial en validación mantiene soporte en Linux x86_64, Ubuntu
+22.04/24.04 y Python 3.10–3.13, con Rust 1.97.1 y Go 1.26.5. RC2 no está
+publicada y no amplía la matriz de plataformas.
 
 ## 4. Instalación
 
@@ -218,7 +219,7 @@ controles adicionales.
 
 ```text
 MANUAL_VERSION=1.0-TASK-4-DEFINITIVA
-PRODUCT_VERSION=3.0.0-rc.1
+PRODUCT_VERSION=3.0.0-rc.2
 BASE_COMMIT=77ad51f0751b29b510f574e750c1a3fa65db4a60
 TASK=4
 SUBTASK=4.5

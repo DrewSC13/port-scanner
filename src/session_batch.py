@@ -146,7 +146,25 @@ class MultiTargetCheckpointStore(SingleTargetCheckpointStore):
             self._replace_current((pointer.to_json() + "\n").encode("utf-8"))
             return pointer
 
-    def load(self) -> SessionCheckpoint:
+    def _compatible_v2_store(self):
+        from src.session_store_v2 import SESSION_DATABASE_NAME, SessionStoreV2
+
+        database_path = self.root / SESSION_DATABASE_NAME
+        if database_path.is_symlink():
+            raise SessionCheckpointIntegrityError(
+                "La base batch v2 no puede ser un symlink."
+            )
+        if not database_path.exists():
+            return None
+        if not database_path.is_file():
+            raise SessionCheckpointIntegrityError(
+                "La base batch v2 debe ser un archivo regular."
+            )
+        return SessionStoreV2.multi_target(self.root, migrate_v1=False)
+
+    def _load_v1_checkpoint(self) -> SessionCheckpoint:
+        """Lee exclusivamente el formato generacional batch v1."""
+
         with self._batch_lock:
             pointer = self._load_pointer()
             checkpoint_path = self.root / pointer.checkpoint_file
@@ -198,6 +216,12 @@ class MultiTargetCheckpointStore(SingleTargetCheckpointStore):
                 )
             _require_batch_plan(checkpoint.plan)
             return checkpoint
+
+    def load(self) -> SessionCheckpoint:
+        v2_store = self._compatible_v2_store()
+        if v2_store is not None:
+            return v2_store.load()
+        return self._load_v1_checkpoint()
 
 
 class MultiTargetSessionRunner:
@@ -485,6 +509,17 @@ class MultiTargetSessionRunner:
         pending_at_start = tuple(endpoint.pending_ports)
         seen = set(endpoint.completed_ports)
 
+        if callable(getattr(self.store, "append_results", None)):
+            self._execute_endpoint_v2(
+                identity,
+                workers,
+                cancel_event,
+                executor,
+                checkpoint,
+                endpoint,
+            )
+            return
+
         def record(raw: Mapping[str, Any] | ScanResult) -> None:
             self._raise_if_cancelled(cancel_event)
             payload = SingleTargetSessionRunner._canonical_result(raw, identity)
@@ -587,6 +622,194 @@ class MultiTargetSessionRunner:
 
         checkpoint = self.store.load()
         self._emit("endpoint_completed", checkpoint, identity=identity)
+
+    def _execute_endpoint_v2(
+        self,
+        identity: TargetIdentity,
+        workers: int,
+        cancel_event: threading.Event,
+        executor: SingleTargetExecutor,
+        checkpoint: SessionCheckpoint,
+        endpoint: EndpointProgress,
+    ) -> None:
+        """Ruta incremental v2 con lotes acotados y eventos confirmados."""
+
+        append_results = getattr(self.store, "append_results")
+        complete_banner = getattr(self.store, "complete_banner")
+        pending_at_start = tuple(endpoint.pending_ports)
+        pending = set(pending_at_start)
+        seen = set(endpoint.completed_ports)
+        buffered: list[Mapping[str, Any]] = []
+        batch_size = max(1, int(getattr(self.store, "result_batch_size", 1)))
+        batch_interval = max(
+            0.0,
+            float(getattr(self.store, "result_batch_interval_seconds", 0.0)),
+        )
+        callback_lock = threading.RLock()
+        stop_flusher = threading.Event()
+        flush_errors: list[BaseException] = []
+
+        def flush() -> None:
+            if not buffered:
+                return
+            batch = tuple(buffered)
+            buffered.clear()
+            with self._state_lock:
+                append_results(
+                    identity,
+                    batch,
+                    updated_at=self._clock(),
+                    status=SessionStatus.RUNNING.value,
+                    last_error=None,
+                )
+                if self._event_callback is not None:
+                    latest = self.store.load()
+                    self._current = latest
+                    self._emit(
+                        "checkpoint_confirmed",
+                        latest,
+                        identity=identity,
+                        message="port_batch_completed",
+                    )
+                    for payload in batch:
+                        self._emit(
+                            "port_completed",
+                            latest,
+                            identity=identity,
+                            result=payload,
+                        )
+                        self._emit(
+                            "port_observed",
+                            latest,
+                            identity=identity,
+                            result=payload,
+                        )
+
+        def periodic_flush() -> None:
+            while not stop_flusher.wait(batch_interval):
+                try:
+                    with callback_lock:
+                        flush()
+                except BaseException as error:
+                    flush_errors.append(error)
+                    cancel_event.set()
+                    stop_flusher.set()
+                    return
+
+        flusher: threading.Thread | None = None
+        if batch_interval > 0.0:
+            flusher = threading.Thread(
+                target=periodic_flush,
+                name="cicadaport-batch-v2-flusher",
+                daemon=True,
+            )
+            flusher.start()
+
+        def raise_flush_error() -> None:
+            if flush_errors:
+                raise flush_errors[0]
+
+        def record(raw: Mapping[str, Any] | ScanResult) -> None:
+            raise_flush_error()
+            self._raise_if_cancelled(cancel_event)
+            payload = SingleTargetSessionRunner._canonical_result(raw, identity)
+            port = int(payload["port"])
+            with callback_lock:
+                raise_flush_error()
+                if port not in pending:
+                    raise SessionExecutionError(
+                        f"El executor devolvió el puerto no pendiente {port}."
+                    )
+                if port in seen:
+                    raise SessionExecutionError(
+                        f"El executor devolvió el puerto duplicado {port}."
+                    )
+                seen.add(port)
+                pending.remove(port)
+                buffered.append(payload)
+                if len(buffered) >= batch_size:
+                    flush()
+
+        execution_error: BaseException | None = None
+        if pending_at_start:
+            try:
+                executor.scan(
+                    identity=identity,
+                    ports=pending_at_start,
+                    timeout=checkpoint.plan.timeout_ms / 1000.0,
+                    workers=min(workers, len(pending_at_start)),
+                    cancel_event=cancel_event,
+                    result_callback=record,
+                )
+            except BaseException as error:
+                execution_error = error
+            finally:
+                stop_flusher.set()
+                if flusher is not None:
+                    flusher.join()
+                if not flush_errors:
+                    with callback_lock:
+                        flush()
+        else:
+            stop_flusher.set()
+            if flusher is not None:
+                flusher.join()
+        raise_flush_error()
+        if execution_error is not None:
+            raise execution_error
+
+        checkpoint = self.store.load()
+        endpoint = self._get_endpoint(checkpoint, identity)
+        if endpoint.pending_ports:
+            missing = ", ".join(str(port) for port in endpoint.pending_ports[:10])
+            raise SessionExecutionError(
+                "El executor finalizó sin completar todos los puertos: " + missing
+            )
+
+        if checkpoint.plan.banner_grab:
+            pending_banners = tuple(
+                port
+                for port in endpoint.open_ports
+                if port not in endpoint.completed_banner_ports
+            )
+            for port in pending_banners:
+                self._raise_if_cancelled(cancel_event)
+                raw = executor.grab_banner(
+                    identity=identity,
+                    port=port,
+                    timeout=checkpoint.plan.timeout_ms / 1000.0,
+                    cancel_event=cancel_event,
+                )
+                banner = NativeBannerResult.from_contract_dict(dict(raw))
+                if banner.target != identity.address or banner.port != port:
+                    raise SessionExecutionError(
+                        "El resultado Go no coincide con endpoint y puerto."
+                    )
+                with self._state_lock:
+                    complete_banner(
+                        identity,
+                        port=port,
+                        banner=banner.banner or None,
+                        updated_at=self._clock(),
+                    )
+                    if self._event_callback is not None:
+                        latest = self.store.load()
+                        self._current = latest
+                        self._emit(
+                            "checkpoint_confirmed",
+                            latest,
+                            identity=identity,
+                            message="banner_completed",
+                        )
+                        self._emit(
+                            "banner_completed",
+                            latest,
+                            identity=identity,
+                        )
+
+        if self._event_callback is not None:
+            checkpoint = self.store.load()
+            self._emit("endpoint_completed", checkpoint, identity=identity)
 
     def _mark_endpoint_error(
         self,

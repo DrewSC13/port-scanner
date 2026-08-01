@@ -6,17 +6,19 @@ must remain inside the authorized scope.
 
 ## Supported versions
 
-CicadaPort `3.0.0-rc.1` is a release candidate, not a production-ready
-release. Verified support is limited to Linux x86_64 on Ubuntu 22.04 and
-Ubuntu 24.04 with Python 3.10 through 3.13.
+CicadaPort `3.0.0-rc.2` is the enterprise Release Candidate currently under
+branch validation. It is not a stable release and has not been published. The
+verified support matrix remains Linux x86_64 on Ubuntu 22.04 and Ubuntu 24.04
+with Python 3.10 through 3.13.
 
 | Version | Security fixes | Release state |
 | --- | --- | --- |
 | `main` | Yes | Active development |
-| `3.0.0-rc.1` | Yes while current | Prerelease |
+| `3.0.0-rc.2` | Candidate validation | Not published |
+| `3.0.0-rc.1` | Yes while current | Published prerelease |
 | Earlier commits or unmaintained releases | No | Unsupported |
 
-Windows, macOS, ARM64 and Python 3.14 are not supported by RC1.
+Windows, macOS, ARM64 and Python 3.14 are not supported by RC2.
 
 ## Reporting a vulnerability
 

@@ -245,16 +245,34 @@ SYN scan, nuevas capacidades UDP, identificación activa de sistemas
 operativos, detección de vulnerabilidades, explotación, evasión, scripting
 ofensivo ni escaneo externo o no autorizado.
 
-## Barrera formal de TASK 5
+## TASK 5 — Enterprise Engine and Production Hardening
 
 ```text
-TASK_5=BLOCKED_NOT_STARTED
+TASK_5=IN_IMPLEMENTATION
+CONTRACT=CEPH-CICADAPORT-TASK-5-001
+CONTRACT_VERSION=1.0-CANDIDATE
+BASE=main@bfaa7e6c2989dc923b418862ce9243e68e3f569c
+BRANCH=feat/task-5-enterprise-engine-production-hardening
+SUBTASK_5_1=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
+SUBTASK_5_2=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
+SUBTASK_5_3=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
+SUBTASK_5_4=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
+SUBTASK_5_5=COMPLETED_CONSOLIDATED_CLOSED_FROZEN
+SUBTASK_5_6=OPEN_AUTHORIZED_IN_MATERIAL_IMPLEMENTATION
+SUBTASK_5_6_CONTRACT=EIVRC-CICADAPORT-5.6-001
+PROPOSED_RELEASE=3.0.0-rc.2
+PHASE_F=BLOCKED_NOT_AUTHORIZED
 ```
 
-La futura mejora empresarial de motores Rust y Go, el rediseño del almacén de
-sesiones, los reportes seguros, la supply chain y las capacidades operativas
-requieren contrato y autorización independientes. El cierre de TASK 4 no abre
-TASK 5 automáticamente.
+SUBTASKS 5.1–5.5 consolidaron arquitectura y baselines empresariales, Session
+Store v2 y artefactos seguros, Rust TCP Engine v2, Go Service Evidence Engine
+v2 y endurecimiento de supply chain. SUBTASK 5.6 valida integralmente esa
+convergencia y prepara RC2 sin publicación.
+
+La aceptación se limita a loopback y debe demostrar contratos públicos v1,
+`service_evidence` v2, instalación aislada, reproducibilidad, presupuestos de
+recursos, SBOM, provenance, firmas y CI completo. `main`, etiquetas y
+publicación permanecen bloqueados hasta la fase F.
 
 ## Gobierno vigente
 

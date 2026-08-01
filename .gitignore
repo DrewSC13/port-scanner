@@ -37,3 +37,6 @@ scan_report_*
 *.csv
 *.json
 *.html
+
+# Evidencia local de benchmarks
+task-5-1-baseline-evidence/

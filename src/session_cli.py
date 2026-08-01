@@ -25,9 +25,14 @@ from src.scanner import ScanResult
 from src.session import ScanPlan, SessionCheckpoint, deterministic_json
 from src.session_runtime import (
     SessionPersistenceError,
-    SingleTargetCheckpointStore,
     SingleTargetSessionRunner,
-    StorePointer,
+    _require_single_target_plan,
+)
+from src.session_store_v2 import SessionStoreCommit, SessionStoreV2
+from src.secure_artifacts import (
+    ArtifactExistsError,
+    SecureArtifactError,
+    SecureArtifactWriter,
 )
 from src.targets import TargetParseError, TargetResolutionError, TargetResolver
 
@@ -142,36 +147,15 @@ class PublicSessionEventWriter:
                 "--events-jsonl requiere una ruta nueva y no admite symlinks."
             )
 
-        parent = path.parent
-        if parent.exists() and parent.is_symlink():
-            raise PublicSessionEventError(
-                "El directorio de --events-jsonl no puede ser un symlink."
-            )
-        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        if not parent.is_dir():
-            raise PublicSessionEventError(
-                "El padre de --events-jsonl debe ser un directorio."
-            )
-
         try:
-            descriptor = os.open(
-                path,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                0o600,
-            )
-        except OSError as error:
+            self.path, self._stream = SecureArtifactWriter(
+                path.parent
+            ).open_exclusive_text_stream(path)
+        except (ArtifactExistsError, SecureArtifactError) as error:
             raise PublicSessionEventError(
                 f"No fue posible crear el stream de eventos: {error}."
             ) from error
 
-        self.path = path.resolve(strict=True)
-        self._stream = os.fdopen(
-            descriptor,
-            "w",
-            encoding="utf-8",
-            newline="\n",
-            buffering=1,
-        )
         self._lock = threading.RLock()
         self._sequence = 0
         self._closed = False
@@ -325,6 +309,16 @@ class SessionEventEmitter:
             checkpoint_sequence=checkpoint.sequence,
         )
 
+    def emit_store_commit(self, commit: SessionStoreCommit) -> None:
+        self.emit(
+            event="checkpoint_confirmed",
+            phase="checkpoint",
+            source="python",
+            status=commit.status,
+            completed=commit.completed_ports,
+            checkpoint_sequence=commit.sequence,
+        )
+
     def emit_lifecycle(
         self,
         event: str,
@@ -343,7 +337,7 @@ class SessionEventEmitter:
         )
 
 
-class ObservableSingleTargetCheckpointStore(SingleTargetCheckpointStore):
+class ObservableSingleTargetCheckpointStore(SessionStoreV2):
     """Emite checkpoint_confirmed solo después de persistencia satisfactoria."""
 
     def __init__(
@@ -352,14 +346,30 @@ class ObservableSingleTargetCheckpointStore(SingleTargetCheckpointStore):
         *,
         emitter: SessionEventEmitter | None = None,
     ) -> None:
-        super().__init__(root)
+        super().__init__(
+            root,
+            plan_validator=_require_single_target_plan,
+            migrate_v1=True,
+        )
         self._emitter = emitter
 
-    def persist(self, checkpoint: SessionCheckpoint) -> StorePointer:
+    def persist(self, checkpoint: SessionCheckpoint) -> SessionStoreCommit:
         pointer = super().persist(checkpoint)
         if self._emitter is not None:
             self._emitter.emit_checkpoint(checkpoint)
         return pointer
+
+    def append_results(self, *args: Any, **kwargs: Any) -> SessionStoreCommit:
+        receipt = super().append_results(*args, **kwargs)
+        if self._emitter is not None:
+            self._emitter.emit_store_commit(receipt)
+        return receipt
+
+    def complete_banner(self, *args: Any, **kwargs: Any) -> SessionStoreCommit:
+        receipt = super().complete_banner(*args, **kwargs)
+        if self._emitter is not None:
+            self._emitter.emit_store_commit(receipt)
+        return receipt
 
 
 class ObservableNativeSingleTargetExecutor:
@@ -629,7 +639,7 @@ def execute_session_cli(
             raise SessionPersistenceError(
                 "--resume requiere un directorio de sesión existente y regular."
             )
-        probe_store = SingleTargetCheckpointStore(session_dir)
+        probe_store = SessionStoreV2.single_target(session_dir)
         current = probe_store.load()
         plan = current.plan
         session_id = current.session_id
@@ -696,7 +706,7 @@ def execute_session_cli(
     except ScanCancelledError as error:
         latest = None
         try:
-            latest = SingleTargetCheckpointStore(session_dir).load()
+            latest = SessionStoreV2.single_target(session_dir).load()
         except Exception:
             pass
         emitter.emit_lifecycle(
@@ -709,7 +719,7 @@ def execute_session_cli(
     except KeyboardInterrupt:
         latest = None
         try:
-            latest = SingleTargetCheckpointStore(session_dir).load()
+            latest = SessionStoreV2.single_target(session_dir).load()
         except Exception:
             pass
         emitter.emit_lifecycle(
@@ -722,7 +732,7 @@ def execute_session_cli(
     except BaseException as error:
         latest = None
         try:
-            latest = SingleTargetCheckpointStore(session_dir).load()
+            latest = SessionStoreV2.single_target(session_dir).load()
         except Exception:
             pass
         emitter.emit_lifecycle(

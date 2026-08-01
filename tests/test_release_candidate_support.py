@@ -23,8 +23,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_single_version_source_drives_cli_and_metadata() -> None:
-    assert __version__ == "3.0.0rc1"
-    assert SEMVER_VERSION == "3.0.0-rc.1"
+    assert __version__ == "3.0.0rc2"
+    assert SEMVER_VERSION == "3.0.0-rc.2"
     output = StringIO()
     with redirect_stdout(output), pytest.raises(SystemExit) as exit_info:
         PortScannerCLI().parser.parse_args(["--version"])
@@ -128,6 +128,7 @@ def test_release_files_and_toolchains_are_pinned() -> None:
         ROOT / "CHANGELOG.md",
         ROOT / "docs" / "release-candidate.md",
         ROOT / "docs" / "contracts" / "release-candidate-support-v1.md",
+        ROOT / "docs" / "contracts" / "release-candidate-support-v2-candidate.md",
         ROOT / "MANIFEST.in",
     ):
         assert path.is_file()
@@ -147,4 +148,4 @@ def test_ci_declares_supported_matrix_and_artifacts() -> None:
     ) in workflow
     assert "build_release_artifacts.sh" in workflow
     assert "test_release_artifacts.sh" in workflow
-    assert "actions/upload-artifact@v4" in workflow
+    assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in workflow
