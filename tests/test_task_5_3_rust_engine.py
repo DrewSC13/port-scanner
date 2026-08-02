@@ -24,10 +24,20 @@ def test_rust_engine_uses_bounded_async_dispatch_and_backpressure() -> None:
     assert "MAX_RUNTIME_THREADS: usize = 16" in source
     assert "JoinSet<ScanResult>" in source
     assert "join_set.len() < concurrency" in source
-    assert "mpsc::sync_channel::<ScanResult>" in source
+    assert "mpsc::channel::<ScanResult>" in source
+    assert "sender.send(result).await" in source
     assert "MAX_RESULT_CHANNEL_CAPACITY" in source
-    assert "thread::scope" in source
+    assert "runtime.spawn(run_scheduler(" in source
+    assert "runtime.block_on(scheduler_handle)" in source
+    assert "run_writer(" in source
+    assert "thread::scope" not in source
+    assert "abort_and_drain" in source
+    assert "try_spawn_port_task" in source
+    assert "cancellation.try_begin_spawn()" in source
+    assert "run_scheduler_with_connector" in source
     assert "for _ in 0..config.workers" not in source
+    assert "std::sync::mpsc" not in source
+    assert "SyncSender" not in source
     assert "AtomicUsize" not in source
     assert "VecDeque" not in source
     assert "Mutex" not in source
@@ -59,13 +69,14 @@ def test_contract_v1_and_async_resource_limits_remain_explicit() -> None:
     assert "const MAX_WORKERS: usize = 512;" in contract_source
     assert "serde(deny_unknown_fields)" in contract_source
     assert "AtomicBool" in cancellation_source
+    assert "swap(true, Ordering::AcqRel)" in cancellation_source
     assert "run_writer" in output_source
-    assert "receiver.recv()" in output_source
+    assert "receiver.blocking_recv()" in output_source
 
     cargo = (REPOSITORY_ROOT / "rust-core" / "Cargo.toml").read_text(
         encoding="utf-8"
     )
-    assert "tokio" in cargo
+    assert 'tokio = { version = "=1.52.3"' in cargo
     assert "rt-multi-thread" in cargo
     assert "net" in cargo
     assert "time" in cargo

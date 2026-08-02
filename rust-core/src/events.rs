@@ -51,18 +51,33 @@ impl NativeEventEmitter {
                     OpenOptions::new()
                         .write(true)
                         .open(format!("/proc/self/fd/{fd}"))
-                        .map_err(|e| format!("No se pudo abrir native_event: {e}"))?,
+                        .map_err(|error| format!("No se pudo abrir native_event: {error}"))?,
                 )
             }
         };
-        Ok(Self {
+
+        Ok(Self::new(config, writer))
+    }
+
+    fn new(config: &AppConfig, writer: Option<File>) -> Self {
+        Self {
             writer,
             started: Instant::now(),
             sequence: 0,
             target: config.host.clone(),
             total: config.ports.len(),
             workers: config.workers,
-        })
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn disabled_for_test(config: &AppConfig) -> Self {
+        Self::new(config, None)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_file_for_test(config: &AppConfig, writer: File) -> Self {
+        Self::new(config, Some(writer))
     }
 
     pub(crate) fn emit(
@@ -75,7 +90,11 @@ impl NativeEventEmitter {
         let Some(writer) = self.writer.as_mut() else {
             return Ok(());
         };
-        self.sequence += 1;
+
+        let next_sequence = self
+            .sequence
+            .checked_add(1)
+            .ok_or_else(|| "Secuencia native_event agotada".to_string())?;
         let payload = NativeEvent {
             contract_version: CONTRACT_VERSION,
             record_type: "native_event",
@@ -83,7 +102,7 @@ impl NativeEventEmitter {
             phase: "tcp_scan",
             event: event.to_string(),
             target: self.target.clone(),
-            sequence: self.sequence,
+            sequence: next_sequence,
             elapsed_ms: self
                 .started
                 .elapsed()
@@ -96,20 +115,36 @@ impl NativeEventEmitter {
             total: self.total,
             workers: self.workers,
         };
+
         serde_json::to_writer(&mut *writer, &payload)
-            .map_err(|e| format!("Error serializando native_event Rust: {e}"))?;
+            .map_err(|error| format!("Error serializando native_event Rust: {error}"))?;
         writer
             .write_all(b"\n")
-            .map_err(|e| format!("Error escribiendo native_event Rust: {e}"))?;
+            .map_err(|error| format!("Error escribiendo native_event Rust: {error}"))?;
         writer
             .flush()
-            .map_err(|e| format!("Error vaciando native_event Rust: {e}"))
+            .map_err(|error| format!("Error vaciando native_event Rust: {error}"))?;
+
+        self.sequence = next_sequence;
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::NativeEvent;
+    use super::{NativeEvent, NativeEventEmitter};
+    use crate::contract::AppConfig;
+    use std::fs::{self, File};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn config() -> AppConfig {
+        AppConfig {
+            host: "127.0.0.1".to_string(),
+            ports: vec![80, 443],
+            timeout_ms: 10,
+            workers: 2,
+        }
+    }
 
     #[test]
     fn serializes_native_event_v1() {
@@ -128,9 +163,66 @@ mod tests {
             total: 1,
             workers: 1,
         })
-        .unwrap();
+        .expect("native_event serializable");
+
         assert_eq!(value["record_type"], "native_event");
         assert_eq!(value["engine"], "rust");
         assert_eq!(value["port"], 80);
+    }
+
+    #[test]
+    fn event_sequence_and_completed_counters_are_monotonic() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("reloj válido")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "cicadaport-native-event-{}-{nonce}.jsonl",
+            std::process::id()
+        ));
+        let file = File::create(&path).expect("archivo temporal");
+        let mut emitter = NativeEventEmitter::from_file_for_test(&config(), file);
+
+        emitter
+            .emit("engine_started", "running", None, 0)
+            .expect("inicio");
+        emitter
+            .emit("port_completed", "closed", Some(80), 1)
+            .expect("puerto 80");
+        emitter
+            .emit("port_completed", "closed", Some(443), 2)
+            .expect("puerto 443");
+        emitter
+            .emit("engine_completed", "success", None, 2)
+            .expect("cierre");
+        drop(emitter);
+
+        let content = fs::read_to_string(&path).expect("eventos");
+        fs::remove_file(&path).expect("limpieza");
+
+        let values: Vec<serde_json::Value> = content
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("evento JSON"))
+            .collect();
+
+        assert_eq!(values.len(), 4);
+        assert_eq!(
+            values
+                .iter()
+                .map(|value| value["sequence"].as_u64().expect("sequence"))
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3, 4]
+        );
+        assert_eq!(
+            values
+                .iter()
+                .map(|value| value["completed"].as_u64().expect("completed"))
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2, 2]
+        );
+        assert_eq!(values[0]["event"], "engine_started");
+        assert_eq!(values[3]["event"], "engine_completed");
+        assert_eq!(values[3]["status"], "success");
+        assert_eq!(values[3]["workers"], 2);
     }
 }
