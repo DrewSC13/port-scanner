@@ -1,7 +1,9 @@
 use crate::contract::{ScanEvidence, ScanResult, CONTRACT_VERSION};
 use std::io;
-use std::net::{IpAddr, SocketAddr, TcpStream};
+use std::net::{IpAddr, SocketAddr};
 use std::time::{Duration, Instant};
+use tokio::net::TcpStream;
+use tokio::time;
 
 pub(crate) const MAX_DIAGNOSTIC_BYTES: usize = 512;
 
@@ -118,59 +120,80 @@ pub(crate) fn resolution_failed_result(host: &str, port: u16, detail: &str) -> S
     }
 }
 
-pub(crate) fn scan_port(host: &str, address: IpAddr, port: u16, timeout: Duration) -> ScanResult {
+fn accepted_result(host: &str, address: IpAddr, port: u16, elapsed: Duration) -> ScanResult {
+    ScanResult {
+        contract_version: CONTRACT_VERSION,
+        record_type: "port_result",
+        target: host.to_string(),
+        address: address.to_string(),
+        address_family: Some(address_family(address)),
+        host_state: "up",
+        port,
+        protocol: "tcp",
+        state: "open",
+        reason: "connection_accepted",
+        technique: "tcp_connect",
+        service: service_name(port).to_string(),
+        banner: None,
+        response_time: elapsed.as_secs_f64(),
+        is_open: Some(true),
+        evidence: ScanEvidence {
+            reason: "connection_accepted",
+            source: "rust",
+            detail: None,
+            errno: Some(0),
+        },
+    }
+}
+
+fn failed_result(
+    host: &str,
+    address: IpAddr,
+    port: u16,
+    elapsed: Duration,
+    error: &io::Error,
+) -> ScanResult {
+    let (state, host_state, reason) = classify_connect_error(error);
+    ScanResult {
+        contract_version: CONTRACT_VERSION,
+        record_type: "port_result",
+        target: host.to_string(),
+        address: address.to_string(),
+        address_family: Some(address_family(address)),
+        host_state,
+        port,
+        protocol: "tcp",
+        state,
+        reason,
+        technique: "tcp_connect",
+        service: String::new(),
+        banner: None,
+        response_time: elapsed.as_secs_f64(),
+        is_open: Some(false),
+        evidence: ScanEvidence {
+            reason,
+            source: "rust",
+            detail: Some(truncate_diagnostic(&error.to_string())),
+            errno: error.raw_os_error(),
+        },
+    }
+}
+
+pub(crate) async fn scan_port(
+    host: &str,
+    address: IpAddr,
+    port: u16,
+    timeout: Duration,
+) -> ScanResult {
     let start = Instant::now();
     let socket_addr = SocketAddr::new(address, port);
 
-    match TcpStream::connect_timeout(&socket_addr, timeout) {
-        Ok(_) => ScanResult {
-            contract_version: CONTRACT_VERSION,
-            record_type: "port_result",
-            target: host.to_string(),
-            address: address.to_string(),
-            address_family: Some(address_family(address)),
-            host_state: "up",
-            port,
-            protocol: "tcp",
-            state: "open",
-            reason: "connection_accepted",
-            technique: "tcp_connect",
-            service: service_name(port).to_string(),
-            banner: None,
-            response_time: start.elapsed().as_secs_f64(),
-            is_open: Some(true),
-            evidence: ScanEvidence {
-                reason: "connection_accepted",
-                source: "rust",
-                detail: None,
-                errno: Some(0),
-            },
-        },
-        Err(error) => {
-            let (state, host_state, reason) = classify_connect_error(&error);
-            ScanResult {
-                contract_version: CONTRACT_VERSION,
-                record_type: "port_result",
-                target: host.to_string(),
-                address: address.to_string(),
-                address_family: Some(address_family(address)),
-                host_state,
-                port,
-                protocol: "tcp",
-                state,
-                reason,
-                technique: "tcp_connect",
-                service: String::new(),
-                banner: None,
-                response_time: start.elapsed().as_secs_f64(),
-                is_open: Some(false),
-                evidence: ScanEvidence {
-                    reason,
-                    source: "rust",
-                    detail: Some(truncate_diagnostic(&error.to_string())),
-                    errno: error.raw_os_error(),
-                },
-            }
+    match time::timeout(timeout, TcpStream::connect(socket_addr)).await {
+        Ok(Ok(_stream)) => accepted_result(host, address, port, start.elapsed()),
+        Ok(Err(error)) => failed_result(host, address, port, start.elapsed(), &error),
+        Err(_) => {
+            let error = io::Error::new(io::ErrorKind::TimedOut, "connection timed out");
+            failed_result(host, address, port, start.elapsed(), &error)
         }
     }
 }

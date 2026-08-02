@@ -1,6 +1,8 @@
+mod cancel;
 mod connect;
 mod contract;
 mod engine;
+mod error;
 mod events;
 mod invocation;
 mod output;
@@ -27,9 +29,8 @@ fn main() {
     let raw_request = read_stdin().unwrap_or_else(|error| print_error_and_exit(&error, 1));
     let config =
         parse_scan_request(&raw_request).unwrap_or_else(|error| print_error_and_exit(&error, 1));
-    let stdout = io::stdout();
-    let mut writer = stdout.lock();
-    if let Err(error) = run_scan(config, &mut writer) {
+    let writer = io::stdout();
+    if let Err(error) = run_scan(config, writer) {
         print_error_and_exit(&error, 1);
     }
 }

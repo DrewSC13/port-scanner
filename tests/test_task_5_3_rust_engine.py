@@ -16,17 +16,24 @@ def rust_source(module: str) -> str:
     return source.read_text(encoding="utf-8")
 
 
-def test_rust_v2_uses_bounded_backpressure_and_atomic_dispatch() -> None:
+def test_rust_engine_uses_bounded_async_dispatch_and_backpressure() -> None:
     source = rust_source("engine")
+    assert "Builder::new_multi_thread()" in source
+    assert ".worker_threads(runtime_thread_count())" in source
+    assert "DEFAULT_RUNTIME_THREAD_CAP: usize = 4" in source
+    assert "MAX_RUNTIME_THREADS: usize = 16" in source
+    assert "JoinSet<ScanResult>" in source
+    assert "join_set.len() < concurrency" in source
     assert "mpsc::sync_channel::<ScanResult>" in source
     assert "MAX_RESULT_CHANNEL_CAPACITY" in source
-    assert "AtomicUsize" in source
-    assert "AtomicBool" in source
+    assert "thread::scope" in source
+    assert "for _ in 0..config.workers" not in source
+    assert "AtomicUsize" not in source
     assert "VecDeque" not in source
     assert "Mutex" not in source
 
 
-def test_dns_resolution_is_outside_the_per_port_hot_path() -> None:
+def test_dns_resolution_remains_outside_the_per_port_hot_path() -> None:
     connect_source = rust_source("connect")
     engine_source = rust_source("engine")
     resolve_source = rust_source("resolve")
@@ -35,21 +42,34 @@ def test_dns_resolution_is_outside_the_per_port_hot_path() -> None:
     assert "resolve_target" not in connect_source
     assert engine_source.count("resolve_target(&config.host)") == 1
     assert "SocketAddr::new(address, port)" in connect_source
+    assert "tokio::net::TcpStream" in connect_source
+    assert "tokio::time" in connect_source
+    assert "TcpStream::connect_timeout" not in connect_source
     assert "ToSocketAddrs" in resolve_source
 
 
-def test_contract_v1_and_resource_limits_remain_explicit() -> None:
+def test_contract_v1_and_async_resource_limits_remain_explicit() -> None:
     contract_source = rust_source("contract")
     invocation_source = rust_source("invocation")
+    cancellation_source = rust_source("cancel")
+    output_source = rust_source("output")
 
     assert "const CONTRACT_VERSION: u8 = 1;" in contract_source
     assert "const MAX_REQUEST_BYTES: usize = 8 * 1024 * 1024;" in invocation_source
     assert "const MAX_WORKERS: usize = 512;" in contract_source
     assert "serde(deny_unknown_fields)" in contract_source
+    assert "AtomicBool" in cancellation_source
+    assert "run_writer" in output_source
+    assert "receiver.recv()" in output_source
+
     cargo = (REPOSITORY_ROOT / "rust-core" / "Cargo.toml").read_text(
         encoding="utf-8"
     )
-    assert "tokio" not in cargo
+    assert "tokio" in cargo
+    assert "rt-multi-thread" in cargo
+    assert "net" in cargo
+    assert "time" in cargo
+    assert "sync" in cargo
     assert "async-std" not in cargo
 
 

@@ -1,5 +1,9 @@
+use crate::cancel::CancellationToken;
 use crate::contract::ScanResult;
+use crate::error::EngineError;
+use crate::events::NativeEventEmitter;
 use std::io::Write;
+use std::sync::mpsc::Receiver;
 
 pub(crate) fn write_jsonl_record<W: Write>(
     writer: &mut W,
@@ -13,6 +17,51 @@ pub(crate) fn write_jsonl_record<W: Write>(
     writer
         .flush()
         .map_err(|error| format!("Error vaciando JSONL: {error}"))
+}
+
+pub(crate) fn run_writer<W: Write>(
+    writer: &mut W,
+    receiver: Receiver<ScanResult>,
+    mut events: NativeEventEmitter,
+    cancellation: CancellationToken,
+    expected_results: usize,
+) -> Result<(), EngineError> {
+    let mut emitted_results = 0;
+
+    while emitted_results < expected_results {
+        let result = match receiver.recv() {
+            Ok(result) => result,
+            Err(_) => break,
+        };
+
+        if let Err(error) = write_jsonl_record(writer, &result) {
+            cancellation.cancel();
+            return Err(EngineError::Output(error));
+        }
+
+        emitted_results += 1;
+        if let Err(error) = events.emit(
+            "port_completed",
+            result.state,
+            Some(result.port),
+            emitted_results,
+        ) {
+            cancellation.cancel();
+            return Err(EngineError::Output(error));
+        }
+    }
+
+    if emitted_results != expected_results {
+        cancellation.cancel();
+        return Err(EngineError::Incomplete {
+            emitted: emitted_results,
+            expected: expected_results,
+        });
+    }
+
+    events
+        .emit("engine_completed", "success", None, emitted_results)
+        .map_err(EngineError::Output)
 }
 
 #[cfg(test)]
