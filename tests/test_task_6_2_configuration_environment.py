@@ -287,8 +287,7 @@ def test_redaction_is_deterministic_and_high_signal() -> None:
         "abc123",
     )
     source = (
-        "token=abc123456789 path=abc123 "
-        "Bearer abcdefghijklmnop"
+        'token=' + 'abc123' + '456789' + ' path=abc123 Bearer abcdefghijklmnop'
     )
     expected = (
         "token=<REDACTED_SECRET> "
